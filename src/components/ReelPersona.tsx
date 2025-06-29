@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WakeWordService } from '../lib/wake-word.service';
 import { BedrockService } from '../lib/bedrock.service';
-import { ElevenLabsService } from '../lib/elevenlabs.service';
+import ElevenLabsService from '../lib/elevenlabs.service';
 import styles from './ReelPersona.module.css';
 
 interface ReelPersonaProps {
