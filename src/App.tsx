@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore, initializeSupabase } from './lib/auth'
 import { AppWrapper } from './components/AppWrapper'
-import ReelPersona from './components/ReelPersona'
+import { ReelPersona } from './components/ReelPersona'
 import './index.css'
 
 function App() {
