@@ -23,7 +23,8 @@ import {
   Play,
   Sparkles,
   Settings,
-  AlertTriangle
+  AlertTriangle,
+  Loader
 } from 'lucide-react';
 import { 
   generateAIResponse, 
@@ -32,6 +33,12 @@ import {
   type CandidatePersonaProfile,
   type AIResponse 
 } from '../lib/bedrock.service';
+import { 
+  initializeElevenLabs, 
+  getElevenLabsService, 
+  type ElevenLabsVoice,
+  type VoiceSettings as ElevenLabsVoiceSettings
+} from '../lib/elevenlabs.service';
 import { type ConflictStyle } from '../lib/simulation';
 import styles from './ReelPersona.module.css';
 
@@ -66,41 +73,12 @@ interface UserProfile {
 interface VoiceSettings {
   enabled: boolean;
   autoPlay: boolean;
-  rate: number;
-  pitch: number;
-  voice: SpeechSynthesisVoice | null;
+  voiceId: string;
+  stability: number;
+  similarityBoost: number;
+  style: number;
+  useSpeakerBoost: boolean;
 }
-
-// Enhanced voice quality scoring system with preference for deeper, calmer voices
-const getVoiceQuality = (voice: SpeechSynthesisVoice): number => {
-  let score = 0;
-  const name = voice.name.toLowerCase();
-  const lang = voice.lang.toLowerCase();
-  
-  // Prefer English voices
-  if (lang.startsWith('en-')) score += 10;
-  
-  // High-quality voice indicators
-  if (name.includes('neural') || name.includes('premium') || name.includes('enhanced')) score += 20;
-  if (name.includes('natural') || name.includes('human')) score += 15;
-  
-  // Prefer deeper, more calming voices for Sensa
-  if (name.includes('alex') || name.includes('daniel') || name.includes('david')) score += 18;
-  if (name.includes('samantha') || name.includes('victoria') || name.includes('aria')) score += 15;
-  if (name.includes('zira') || name.includes('hazel')) score += 12;
-  
-  // Bonus for voices that sound professional and calming
-  if (name.includes('professional') || name.includes('calm') || name.includes('deep')) score += 15;
-  
-  // Avoid robotic/synthetic sounding voices
-  if (name.includes('robot') || name.includes('synthetic') || name.includes('computer')) score -= 10;
-  if (name.includes('microsoft') && !name.includes('neural')) score -= 5;
-  
-  // Prefer local voices (usually higher quality)
-  if (voice.localService) score += 5;
-  
-  return score;
-};
 
 const ReelPersona: React.FC = () => {
   // State management
@@ -128,22 +106,50 @@ const ReelPersona: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [justCause, setJustCause] = useState("To empower individuals and organizations to discover and live their purpose");
   
-  // Voice-related state - optimized for Sensa's deep, calming voice
+  // ElevenLabs voice state
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
     enabled: true,
     autoPlay: true,
-    rate: 0.75, // Slower for more calming effect
-    pitch: 0.8, // Lower pitch for deeper voice
-    voice: null
+    voiceId: 'ErXwobaYiN019PkySvjV', // Antoni - deep, calming voice
+    stability: 0.75,
+    similarityBoost: 0.75,
+    style: 0.5,
+    useSpeakerBoost: true
   });
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [qualityVoices, setQualityVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [currentSpeech, setCurrentSpeech] = useState<SpeechSynthesisUtterance | null>(null);
+  const [availableVoices, setAvailableVoices] = useState<ElevenLabsVoice[]>([]);
+  const [isVoiceLoading, setIsVoiceLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [elevenLabsInitialized, setElevenLabsInitialized] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<any>(null);
+
+  // Initialize ElevenLabs
+  useEffect(() => {
+    const initVoiceService = async () => {
+      const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+      
+      if (!apiKey) {
+        setVoiceError('ElevenLabs API key not found. Please add VITE_ELEVENLABS_API_KEY to your .env file.');
+        return;
+      }
+
+      try {
+        const service = initializeElevenLabs(apiKey);
+        const voices = await service.getVoices();
+        setAvailableVoices(voices);
+        setElevenLabsInitialized(true);
+        setVoiceError(null);
+      } catch (error) {
+        console.error('Failed to initialize ElevenLabs:', error);
+        setVoiceError('Failed to connect to ElevenLabs. Please check your API key.');
+      }
+    };
+
+    initVoiceService();
+  }, []);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -170,40 +176,6 @@ const ReelPersona: React.FC = () => {
     }
   }, []);
 
-  // Enhanced speech synthesis initialization with preference for deeper voices
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      const loadVoices = () => {
-        const voices = speechSynthesis.getVoices();
-        setAvailableVoices(voices);
-        
-        // Filter and rank voices by quality, preferring deeper voices for Sensa
-        const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
-        const rankedVoices = englishVoices
-          .map(voice => ({ voice, quality: getVoiceQuality(voice) }))
-          .sort((a, b) => b.quality - a.quality)
-          .map(item => item.voice);
-        
-        setQualityVoices(rankedVoices);
-        
-        // Select the best available voice for Sensa's calming persona
-        const bestVoice = rankedVoices[0];
-        
-        if (bestVoice && !voiceSettings.voice) {
-          setVoiceSettings(prev => ({ ...prev, voice: bestVoice }));
-        }
-      };
-
-      loadVoices();
-      speechSynthesis.onvoiceschanged = loadVoices;
-      
-      if (speechSynthesis.getVoices().length === 0) {
-        speechSynthesis.speak(new SpeechSynthesisUtterance(''));
-        setTimeout(loadVoices, 100);
-      }
-    }
-  }, []);
-
   // Auto-scroll chat messages
   useEffect(() => {
     if (chatMessagesRef.current) {
@@ -218,61 +190,53 @@ const ReelPersona: React.FC = () => {
     }
   }, [currentStep]);
 
-  // Enhanced voice synthesis functions optimized for Sensa's calming delivery
-  const speakText = (text: string, messageId?: string) => {
-    if (!voiceSettings.enabled || !('speechSynthesis' in window)) return;
+  // ElevenLabs voice functions
+  const speakText = async (text: string, messageId?: string) => {
+    if (!voiceSettings.enabled || !elevenLabsInitialized) return;
 
-    speechSynthesis.cancel();
-
-    const cleanText = text
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/`(.*?)`/g, '$1')
-      .replace(/#{1,6}\s/g, '')
-      .replace(/\n+/g, '. ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    
-    // Optimized settings for Sensa's deep, calming voice
-    utterance.rate = voiceSettings.rate;
-    utterance.pitch = voiceSettings.pitch;
-    utterance.volume = 0.9;
-    
-    if (voiceSettings.voice) {
-      utterance.voice = voiceSettings.voice;
-    }
-
-    utterance.onstart = () => {
+    try {
+      setIsVoiceLoading(true);
       setIsSpeaking(true);
-      setCurrentSpeech(utterance);
+      
       if (messageId) {
         setChatMessages(prev => prev.map(msg => 
           msg.id === messageId ? { ...msg, isPlaying: true } : { ...msg, isPlaying: false }
         ));
       }
-    };
 
-    utterance.onend = () => {
+      const service = getElevenLabsService();
+      
+      const elevenLabsSettings: ElevenLabsVoiceSettings = {
+        stability: voiceSettings.stability,
+        similarity_boost: voiceSettings.similarityBoost,
+        style: voiceSettings.style,
+        use_speaker_boost: voiceSettings.useSpeakerBoost
+      };
+
+      const audioBuffer = await service.generateSpeech(text, voiceSettings.voiceId, elevenLabsSettings);
+      setIsVoiceLoading(false);
+      
+      await service.playAudio(audioBuffer);
+      
       setIsSpeaking(false);
-      setCurrentSpeech(null);
       setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
-    };
-
-    utterance.onerror = () => {
+      
+    } catch (error) {
+      console.error('Error speaking text:', error);
+      setIsVoiceLoading(false);
       setIsSpeaking(false);
-      setCurrentSpeech(null);
       setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
-    };
-
-    speechSynthesis.speak(utterance);
+      setVoiceError('Failed to generate speech. Please try again.');
+    }
   };
 
   const stopSpeech = () => {
-    speechSynthesis.cancel();
+    if (elevenLabsInitialized) {
+      const service = getElevenLabsService();
+      service.stopAudio();
+    }
     setIsSpeaking(false);
-    setCurrentSpeech(null);
+    setIsVoiceLoading(false);
     setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
   };
 
@@ -291,14 +255,39 @@ const ReelPersona: React.FC = () => {
     setVoiceSettings(prev => ({ ...prev, ...updates }));
   };
 
-  const testVoice = (voice: SpeechSynthesisVoice) => {
-    speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance("Hello. I'm Sensa, your AI personality analyst. My voice is designed to be calming and professional as we explore your deeper motivations together.");
-    utterance.voice = voice;
-    utterance.rate = voiceSettings.rate;
-    utterance.pitch = voiceSettings.pitch;
-    utterance.volume = 0.9;
-    speechSynthesis.speak(utterance);
+  const testVoice = async (voiceId: string) => {
+    if (!elevenLabsInitialized) return;
+    
+    try {
+      setIsVoiceLoading(true);
+      const service = getElevenLabsService();
+      
+      const elevenLabsSettings: ElevenLabsVoiceSettings = {
+        stability: voiceSettings.stability,
+        similarity_boost: voiceSettings.similarityBoost,
+        style: voiceSettings.style,
+        use_speaker_boost: voiceSettings.useSpeakerBoost
+      };
+      
+      await service.testVoice(voiceId, elevenLabsSettings);
+      setIsVoiceLoading(false);
+    } catch (error) {
+      console.error('Error testing voice:', error);
+      setIsVoiceLoading(false);
+      setVoiceError('Failed to test voice. Please try again.');
+    }
+  };
+
+  // Get recommended voices for Sensa
+  const getRecommendedVoices = () => {
+    if (!elevenLabsInitialized) return [];
+    
+    const service = getElevenLabsService();
+    const recommended = service.getRecommendedVoicesForSensa();
+    
+    return recommended.filter(rec => 
+      availableVoices.some(voice => voice.voice_id === rec.voice_id)
+    );
   };
 
   // Conversation management
@@ -316,8 +305,8 @@ const ReelPersona: React.FC = () => {
 
     setChatMessages(prev => [...prev, message]);
 
-    // Auto-speak AI messages with Sensa's calming voice
-    if (type === 'ai' && voiceSettings.enabled && voiceSettings.autoPlay) {
+    // Auto-speak AI messages with Sensa's ElevenLabs voice
+    if (type === 'ai' && voiceSettings.enabled && voiceSettings.autoPlay && elevenLabsInitialized) {
       setTimeout(() => speakText(content, message.id), 300);
     }
 
@@ -434,8 +423,8 @@ const ReelPersona: React.FC = () => {
       setResults(analysis);
       setCurrentStep('results');
 
-      // Auto-speak results with Sensa's calming voice
-      if (voiceSettings.enabled && voiceSettings.autoPlay) {
+      // Auto-speak results with Sensa's ElevenLabs voice
+      if (voiceSettings.enabled && voiceSettings.autoPlay && elevenLabsInitialized) {
         setTimeout(() => {
           speakText(`Your personality analysis is complete, ${userProfile.firstName}. ${analysis.alignmentSummary}`);
         }, 1000);
@@ -503,11 +492,12 @@ const ReelPersona: React.FC = () => {
         className={`${styles.voiceToggle} ${voiceSettings.enabled ? styles.enabled : styles.disabled}`}
         onClick={toggleVoice}
         title={voiceSettings.enabled ? 'Disable Sensa\'s voice' : 'Enable Sensa\'s voice'}
+        disabled={!elevenLabsInitialized}
       >
         {voiceSettings.enabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
       </button>
       
-      {voiceSettings.enabled && (
+      {voiceSettings.enabled && elevenLabsInitialized && (
         <>
           <button
             className={`${styles.autoPlayToggle} ${voiceSettings.autoPlay ? styles.enabled : styles.disabled}`}
@@ -527,10 +517,16 @@ const ReelPersona: React.FC = () => {
         </>
       )}
       
-      {showVoiceSettings && voiceSettings.enabled && (
+      {voiceError && (
+        <div className={styles.voiceError} title={voiceError}>
+          <AlertTriangle size={16} />
+        </div>
+      )}
+      
+      {showVoiceSettings && voiceSettings.enabled && elevenLabsInitialized && (
         <div className={styles.voiceSettingsPanel}>
           <div className={styles.voiceSettingsHeader}>
-            <h4>Sensa's Voice Settings</h4>
+            <h4>Sensa's ElevenLabs Voice</h4>
             <button 
               className={styles.closeSettings}
               onClick={() => setShowVoiceSettings(false)}
@@ -543,74 +539,90 @@ const ReelPersona: React.FC = () => {
             <label>Voice Selection:</label>
             <select
               className={styles.voiceSelect}
-              value={voiceSettings.voice?.name || ''}
-              onChange={(e) => {
-                const selectedVoice = availableVoices.find(v => v.name === e.target.value);
-                updateVoiceSettings({ voice: selectedVoice || null });
-              }}
+              value={voiceSettings.voiceId}
+              onChange={(e) => updateVoiceSettings({ voiceId: e.target.value })}
             >
-              <option value="">Default Voice</option>
-              <optgroup label="🎯 Recommended for Sensa (Deep & Calming)">
-                {qualityVoices.slice(0, 5).map(voice => (
-                  <option key={voice.name} value={voice.name}>
-                    {voice.name.split(' ')[0]} ({voice.lang})
+              <optgroup label="🎯 Recommended for Sensa">
+                {getRecommendedVoices().map(voice => (
+                  <option key={voice.voice_id} value={voice.voice_id}>
+                    {voice.name} - {voice.description}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="📱 All Available Voices">
-                {availableVoices
-                  .filter(voice => voice.lang.startsWith('en'))
-                  .map(voice => (
-                    <option key={voice.name} value={voice.name}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
+                {availableVoices.map(voice => (
+                  <option key={voice.voice_id} value={voice.voice_id}>
+                    {voice.name} ({voice.category})
+                  </option>
+                ))}
               </optgroup>
             </select>
-            {voiceSettings.voice && (
-              <button
-                className={styles.testVoiceButton}
-                onClick={() => testVoice(voiceSettings.voice!)}
-                disabled={isSpeaking}
-              >
-                Test Sensa's Voice
-              </button>
-            )}
+            <button
+              className={styles.testVoiceButton}
+              onClick={() => testVoice(voiceSettings.voiceId)}
+              disabled={isVoiceLoading || isSpeaking}
+            >
+              {isVoiceLoading ? <Loader size={12} className="animate-spin" /> : 'Test Voice'}
+            </button>
           </div>
           
           <div className={styles.voiceOption}>
-            <label>Speaking Speed: {voiceSettings.rate.toFixed(1)}x</label>
+            <label>Stability: {voiceSettings.stability.toFixed(2)}</label>
             <input
               type="range"
-              min="0.5"
-              max="1.5"
+              min="0"
+              max="1"
               step="0.05"
-              value={voiceSettings.rate}
-              onChange={(e) => updateVoiceSettings({ rate: parseFloat(e.target.value) })}
+              value={voiceSettings.stability}
+              onChange={(e) => updateVoiceSettings({ stability: parseFloat(e.target.value) })}
               className={styles.voiceSlider}
             />
           </div>
           
           <div className={styles.voiceOption}>
-            <label>Voice Depth: {voiceSettings.pitch.toFixed(1)}</label>
+            <label>Similarity Boost: {voiceSettings.similarityBoost.toFixed(2)}</label>
             <input
               type="range"
-              min="0.6"
-              max="1.2"
+              min="0"
+              max="1"
               step="0.05"
-              value={voiceSettings.pitch}
-              onChange={(e) => updateVoiceSettings({ pitch: parseFloat(e.target.value) })}
+              value={voiceSettings.similarityBoost}
+              onChange={(e) => updateVoiceSettings({ similarityBoost: parseFloat(e.target.value) })}
               className={styles.voiceSlider}
             />
+          </div>
+          
+          <div className={styles.voiceOption}>
+            <label>Style: {voiceSettings.style.toFixed(2)}</label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={voiceSettings.style}
+              onChange={(e) => updateVoiceSettings({ style: parseFloat(e.target.value) })}
+              className={styles.voiceSlider}
+            />
+          </div>
+          
+          <div className={styles.voiceOption}>
+            <label>
+              <input
+                type="checkbox"
+                checked={voiceSettings.useSpeakerBoost}
+                onChange={(e) => updateVoiceSettings({ useSpeakerBoost: e.target.checked })}
+              />
+              Speaker Boost (Enhanced clarity)
+            </label>
           </div>
           
           <div className={styles.voiceQualityInfo}>
-            <p><strong>🎙️ Sensa's Voice Profile:</strong></p>
+            <p><strong>🎙️ ElevenLabs Premium Voice:</strong></p>
             <ul>
-              <li>🎯 Optimized for deep, calming delivery</li>
-              <li>🧘 Slower pace for thoughtful reflection</li>
-              <li>🎵 Lower pitch for professional warmth</li>
-              <li>🔊 Neural voices provide the best experience</li>
+              <li>🎯 Ultra-realistic AI voice synthesis</li>
+              <li>🧘 Optimized for Sensa's calming persona</li>
+              <li>🎵 Professional quality audio</li>
+              <li>⚡ Real-time speech generation</li>
             </ul>
           </div>
         </div>
@@ -630,18 +642,18 @@ const ReelPersona: React.FC = () => {
 
       <div className={styles.welcomeContent}>
         <div className={styles.welcomeMessage}>
-          <h2>Discover Your Professional WHY with Sensa</h2>
+          <h2>Meet Sensa - Your AI Personality Analyst</h2>
           <p>
-            Meet Sensa, your AI personality analyst with a deep, calming voice designed to guide you 
-            through a transformative assessment experience. Using the proven Simon Sinek Golden Circle 
-            framework, Sensa will uncover your deeper motivations through natural conversation and 
-            realistic workplace scenarios.
+            Experience the future of personality assessment with Sensa, powered by ElevenLabs' 
+            ultra-realistic voice technology. Sensa's deep, calming voice creates an immersive 
+            conversation experience as you explore your professional WHY using the proven 
+            Simon Sinek Golden Circle framework.
           </p>
           <p>
             🎯 <strong>Purpose-Driven:</strong> Discover your professional WHY<br/>
             🤝 <strong>Trust-Focused:</strong> Assess collaboration and leadership potential<br/>
             🧠 <strong>Science-Based:</strong> Built on proven psychological frameworks<br/>
-            🎙️ <strong>Calming Voice:</strong> Sensa's deep, professional tone creates a comfortable environment
+            🎙️ <strong>ElevenLabs Voice:</strong> Ultra-realistic AI voice for natural conversation
           </p>
         </div>
 
@@ -670,11 +682,18 @@ const ReelPersona: React.FC = () => {
           <div className={styles.trustItem}>
             <Volume2 size={24} />
             <div>
-              <h3>Sensa's Calming Voice</h3>
-              <p>Deep, professional tone designed for thoughtful reflection</p>
+              <h3>ElevenLabs Voice AI</h3>
+              <p>Ultra-realistic voice technology for natural conversation</p>
             </div>
           </div>
         </div>
+
+        {voiceError && (
+          <div className={styles.voiceErrorMessage}>
+            <AlertTriangle size={20} />
+            <p>{voiceError}</p>
+          </div>
+        )}
 
         <button 
           className={styles.primaryButton}
@@ -694,7 +713,7 @@ const ReelPersona: React.FC = () => {
           <div className={styles.chatHeaderContent}>
             <div className={styles.chatHeaderInfo}>
               <h2><Brain size={24} />Sensa - AI Personality Analyst</h2>
-              <p>Professional assessment using the Golden Circle framework</p>
+              <p>Professional assessment using ElevenLabs voice technology</p>
             </div>
             {renderVoiceControls()}
           </div>
@@ -710,7 +729,7 @@ const ReelPersona: React.FC = () => {
                     {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
-                {message.type === 'ai' && voiceSettings.enabled && (
+                {message.type === 'ai' && voiceSettings.enabled && elevenLabsInitialized && (
                   <div className={styles.messageActions}>
                     {message.isPlaying ? (
                       <button
@@ -719,6 +738,14 @@ const ReelPersona: React.FC = () => {
                         title="Stop Sensa's voice"
                       >
                         <Pause size={14} />
+                      </button>
+                    ) : isVoiceLoading ? (
+                      <button
+                        className={styles.speechButton}
+                        disabled
+                        title="Loading voice..."
+                      >
+                        <Loader size={14} className="animate-spin" />
                       </button>
                     ) : (
                       <button
@@ -834,15 +861,15 @@ const ReelPersona: React.FC = () => {
         <div className={styles.resultsContent}>
           <div className={styles.resultsHeader}>
             <h2>Candidate Persona Profile</h2>
-            {voiceSettings.enabled && (
+            {voiceSettings.enabled && elevenLabsInitialized && (
               <button
                 className={styles.speakResultsButton}
                 onClick={() => speakText(`Here's your comprehensive personality analysis. ${results.alignmentSummary}`)}
-                disabled={isSpeaking}
+                disabled={isSpeaking || isVoiceLoading}
                 title="Listen to Sensa's results summary"
               >
-                {isSpeaking ? <Pause size={20} /> : <Volume2 size={20} />}
-                {isSpeaking ? 'Stop' : 'Listen to Sensa'}
+                {isSpeaking || isVoiceLoading ? <Loader size={20} className="animate-spin" /> : <Volume2 size={20} />}
+                {isSpeaking || isVoiceLoading ? 'Loading...' : 'Listen to Sensa'}
               </button>
             )}
           </div>
@@ -851,7 +878,7 @@ const ReelPersona: React.FC = () => {
             <CheckCircle className={styles.saveStatusIcon} size={20} />
             <div className={styles.saveStatusText}>
               <strong>Analysis Complete!</strong>
-              <br />Professional personality assessment by Sensa using the Golden Circle framework.
+              <br />Professional personality assessment by Sensa using ElevenLabs voice technology.
             </div>
           </div>
 
@@ -934,7 +961,7 @@ const ReelPersona: React.FC = () => {
             </div>
 
             <div className={styles.integrationNote}>
-              <p><strong>Assessment Framework:</strong> This analysis was conducted by Sensa using Simon Sinek's Golden Circle methodology combined with conflict simulation and emotional intelligence assessment.</p>
+              <p><strong>Assessment Framework:</strong> This analysis was conducted by Sensa using Simon Sinek's Golden Circle methodology with ElevenLabs voice technology.</p>
               <p><strong>Just Cause Alignment:</strong> Evaluated against the organization's purpose: "{justCause}"</p>
             </div>
           </div>

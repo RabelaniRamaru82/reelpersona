@@ -21,6 +21,8 @@
   --text-muted: #64748b;
   --simulation-bg: #0f172a;
   --simulation-border: #1e40af;
+  --error-color: #ef4444;
+  --warning-color: #f59e0b;
 }
 
 .reelPersona {
@@ -205,6 +207,24 @@
   margin: 0;
 }
 
+/* Voice Error Message */
+.voiceErrorMessage {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error-color);
+  border-radius: var(--component-radius);
+  margin: var(--spacing-lg) 0;
+  color: var(--error-color);
+}
+
+.voiceErrorMessage p {
+  margin: 0;
+  font-size: 14px;
+}
+
 /* Enhanced Voice Controls */
 .voiceControls {
   display: flex;
@@ -245,14 +265,20 @@
   color: var(--text-muted);
 }
 
+.voiceToggle:disabled,
+.autoPlayToggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .voiceSettingsButton {
   background: var(--card-background);
   color: var(--text-secondary);
   border: 1px solid var(--card-border);
 }
 
-.voiceToggle:hover,
-.autoPlayToggle:hover,
+.voiceToggle:hover:not(:disabled),
+.autoPlayToggle:hover:not(:disabled),
 .voiceSettingsButton:hover {
   transform: scale(1.05);
 }
@@ -261,6 +287,19 @@
   background: var(--accent-blue);
   color: white;
   border-color: var(--accent-blue);
+}
+
+/* Voice Error Indicator */
+.voiceError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--error-color);
+  color: white;
+  border-radius: 50%;
+  cursor: help;
 }
 
 /* Voice Settings Panel */
@@ -340,6 +379,10 @@
   margin-bottom: var(--spacing-sm);
 }
 
+.voiceOption label input[type="checkbox"] {
+  margin-right: var(--spacing-sm);
+}
+
 .voiceSelect {
   width: 100%;
   background: var(--card-background-hover);
@@ -367,6 +410,9 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
 }
 
 .testVoiceButton:hover:not(:disabled) {
@@ -725,7 +771,7 @@
   opacity: 0.7;
 }
 
-.speechButton:hover {
+.speechButton:hover:not(:disabled) {
   opacity: 1;
   background: var(--accent-blue);
   color: white;
@@ -1399,4 +1445,9 @@
 
 .loader {
   animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Utility classes for animations */
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
