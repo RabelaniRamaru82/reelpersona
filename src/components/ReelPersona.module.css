@@ -23,6 +23,7 @@
   --simulation-border: #1e40af;
   --error-color: #ef4444;
   --warning-color: #f59e0b;
+  --success-color: #10b981;
 }
 
 .reelPersona {
@@ -239,6 +240,7 @@
 
 .voiceToggle,
 .autoPlayToggle,
+.wakeWordToggle,
 .voiceSettingsButton {
   display: flex;
   align-items: center;
@@ -254,19 +256,22 @@
 }
 
 .voiceToggle.enabled,
-.autoPlayToggle.enabled {
+.autoPlayToggle.enabled,
+.wakeWordToggle.enabled {
   background: var(--accent-blue);
   color: white;
 }
 
 .voiceToggle.disabled,
-.autoPlayToggle.disabled {
+.autoPlayToggle.disabled,
+.wakeWordToggle.disabled {
   background: var(--card-border);
   color: var(--text-muted);
 }
 
 .voiceToggle:disabled,
-.autoPlayToggle:disabled {
+.autoPlayToggle:disabled,
+.wakeWordToggle:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -279,6 +284,7 @@
 
 .voiceToggle:hover:not(:disabled),
 .autoPlayToggle:hover:not(:disabled),
+.wakeWordToggle:hover:not(:disabled),
 .voiceSettingsButton:hover {
   transform: scale(1.05);
 }
@@ -381,6 +387,13 @@
 
 .voiceOption label input[type="checkbox"] {
   margin-right: var(--spacing-sm);
+}
+
+.wakeWordHelp {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: var(--spacing-xs);
+  font-style: italic;
 }
 
 .voiceSelect {
@@ -491,6 +504,25 @@
 
 .voiceQualityInfo li {
   margin-bottom: var(--spacing-xs);
+}
+
+/* Wake Word Status */
+.wakeWordStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: var(--component-radius);
+  font-size: 12px;
+  color: var(--accent-blue);
+  font-weight: 500;
+}
+
+.wakeWordStatus svg.listening {
+  animation: pulse 1.5s ease-in-out infinite;
+  color: var(--success-color);
 }
 
 /* Chat Interface - Enhanced */
@@ -849,6 +881,11 @@
   font-weight: 400;
 }
 
+.chatInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .sendButton {
   width: 44px;
   height: 44px;
@@ -887,48 +924,23 @@
   animation: spin 1s linear infinite;
 }
 
-.voiceButton {
-  width: 44px;
-  height: 44px;
-  background: #dc2626;
-  color: white;
-  border: none;
-  border-radius: 50%;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
+/* Voice Hint */
+.voiceHint {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  margin-right: var(--spacing-sm);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: var(--component-radius);
+  font-size: 12px;
+  color: var(--accent-blue);
+  font-weight: 500;
 }
 
-.voiceButton:hover:not(:disabled) {
-  background: #b91c1c;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
-.voiceButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  background: var(--text-muted);
-}
-
-.voiceButton.listening {
-  background: #ef4444;
+.voiceHint svg.listening {
   animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
+  color: var(--success-color);
 }
 
 /* Results Section */
@@ -1443,6 +1455,17 @@
   100% { transform: rotate(360deg); }
 }
 
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
 .loader {
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -1450,4 +1473,8 @@
 /* Utility classes for animations */
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+.listening {
+  animation: pulse 1.5s ease-in-out infinite;
 }

@@ -24,7 +24,8 @@ import {
   Sparkles,
   Settings,
   AlertTriangle,
-  Loader
+  Loader,
+  MicIcon
 } from 'lucide-react';
 import { 
   generateAIResponse, 
@@ -39,6 +40,12 @@ import {
   type ElevenLabsVoice,
   type VoiceSettings as ElevenLabsVoiceSettings
 } from '../lib/elevenlabs.service';
+import {
+  initializeWakeWordService,
+  getWakeWordService,
+  type WakeWordConfig,
+  type WakeWordCallbacks
+} from '../lib/wake-word.service';
 import { type ConflictStyle } from '../lib/simulation';
 import styles from './ReelPersona.module.css';
 
@@ -78,6 +85,7 @@ interface VoiceSettings {
   similarityBoost: number;
   style: number;
   useSpeakerBoost: boolean;
+  wakeWordEnabled: boolean;
 }
 
 const ReelPersona: React.FC = () => {
@@ -86,6 +94,8 @@ const ReelPersona: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isWakeWordActive, setIsWakeWordActive] = useState(false);
+  const [isInConversation, setIsInConversation] = useState(false);
   const [currentStep, setCurrentStep] = useState<'welcome' | 'chat' | 'results'>('welcome');
   const [userProfile, setUserProfile] = useState<UserProfile>({
     firstName: '',
@@ -114,7 +124,8 @@ const ReelPersona: React.FC = () => {
     stability: 0.75,
     similarityBoost: 0.75,
     style: 0.5,
-    useSpeakerBoost: true
+    useSpeakerBoost: true,
+    wakeWordEnabled: true
   });
   const [availableVoices, setAvailableVoices] = useState<ElevenLabsVoice[]>([]);
   const [isVoiceLoading, setIsVoiceLoading] = useState(false);
@@ -122,9 +133,10 @@ const ReelPersona: React.FC = () => {
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
   const [elevenLabsInitialized, setElevenLabsInitialized] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [wakeWordStatus, setWakeWordStatus] = useState<string>('');
   
   const chatMessagesRef = useRef<HTMLDivElement>(null);
-  const recognition = useRef<any>(null);
+  const pendingSpeechRef = useRef<string>('');
 
   // Initialize ElevenLabs
   useEffect(() => {
@@ -151,30 +163,71 @@ const ReelPersona: React.FC = () => {
     initVoiceService();
   }, []);
 
-  // Initialize speech recognition
+  // Initialize wake word detection
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      recognition.current = new SpeechRecognition();
-      recognition.current.continuous = false;
-      recognition.current.interimResults = false;
-      recognition.current.lang = 'en-US';
+    if (!voiceSettings.wakeWordEnabled) return;
 
-      recognition.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setChatInput(transcript);
-        setIsListening(false);
-      };
+    const wakeWordConfig: WakeWordConfig = {
+      wakeWord: 'hey sensa',
+      threshold: 0.7,
+      continuous: true,
+      language: 'en-US'
+    };
 
-      recognition.current.onerror = () => {
-        setIsListening(false);
-      };
+    const callbacks: WakeWordCallbacks = {
+      onWakeWordDetected: () => {
+        console.log('Hey Sensa detected!');
+        setIsInConversation(true);
+        setWakeWordStatus('Listening... Say your message');
+        
+        // Provide audio feedback
+        if (elevenLabsInitialized && voiceSettings.enabled) {
+          speakText("Yes, I'm listening. How can I help you?");
+        }
+      },
+      
+      onListening: (listening) => {
+        setIsListening(listening);
+        if (listening && !isInConversation) {
+          setWakeWordStatus('Listening for "Hey Sensa"...');
+        }
+      },
+      
+      onError: (error) => {
+        console.error('Wake word error:', error);
+        setVoiceError(error);
+        setWakeWordStatus('Voice recognition error');
+      },
+      
+      onSpeechResult: (transcript, isFinal) => {
+        if (isInConversation && transcript.trim()) {
+          if (isFinal) {
+            // Process the speech input
+            if (transcript.trim()) {
+              setChatInput(transcript);
+              processUserInput(transcript.trim());
+              setIsInConversation(false);
+              setWakeWordStatus('');
+            }
+          } else {
+            // Show interim results
+            pendingSpeechRef.current = transcript;
+            setChatInput(transcript);
+          }
+        } else if (isFinal && isInConversation) {
+          // Return to wake word mode
+          setIsInConversation(false);
+          setWakeWordStatus('');
+        }
+      }
+    };
 
-      recognition.current.onend = () => {
-        setIsListening(false);
-      };
-    }
-  }, []);
+    const service = initializeWakeWordService(wakeWordConfig, callbacks);
+    
+    return () => {
+      service?.destroy();
+    };
+  }, [voiceSettings.wakeWordEnabled, elevenLabsInitialized, voiceSettings.enabled]);
 
   // Auto-scroll chat messages
   useEffect(() => {
@@ -189,6 +242,17 @@ const ReelPersona: React.FC = () => {
       startConversation();
     }
   }, [currentStep]);
+
+  // Start wake word detection when chat starts
+  useEffect(() => {
+    if (currentStep === 'chat' && voiceSettings.wakeWordEnabled) {
+      const service = getWakeWordService();
+      if (service) {
+        service.startListening();
+        setWakeWordStatus('Say "Hey Sensa" to start talking');
+      }
+    }
+  }, [currentStep, voiceSettings.wakeWordEnabled]);
 
   // ElevenLabs voice functions
   const speakText = async (text: string, messageId?: string) => {
@@ -249,6 +313,22 @@ const ReelPersona: React.FC = () => {
 
   const toggleAutoPlay = () => {
     setVoiceSettings(prev => ({ ...prev, autoPlay: !prev.autoPlay }));
+  };
+
+  const toggleWakeWord = () => {
+    setVoiceSettings(prev => ({ ...prev, wakeWordEnabled: !prev.wakeWordEnabled }));
+    
+    const service = getWakeWordService();
+    if (service) {
+      if (!voiceSettings.wakeWordEnabled) {
+        service.startListening();
+        setWakeWordStatus('Say "Hey Sensa" to start talking');
+      } else {
+        service.stopListening();
+        setWakeWordStatus('');
+        setIsInConversation(false);
+      }
+    }
   };
 
   const updateVoiceSettings = (updates: Partial<VoiceSettings>) => {
@@ -315,7 +395,7 @@ const ReelPersona: React.FC = () => {
 
   const startConversation = () => {
     addMessage(
-      "Hello. I'm Sensa, your AI personality analyst. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. Through our conversation, I'll uncover your WHY, your HOW, and your WHAT, creating a comprehensive understanding of your professional persona. We may also explore how you handle workplace challenges through realistic scenarios. Take a moment to get comfortable, and when you're ready, shall we begin this journey of discovery?",
+      "Hello. I'm Sensa, your AI personality analyst. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. Through our conversation, I'll uncover your WHY, your HOW, and your WHAT, creating a comprehensive understanding of your professional persona. We may also explore how you handle workplace challenges through realistic scenarios. You can type your responses or simply say 'Hey Sensa' followed by your message to talk naturally with me. Take a moment to get comfortable, and when you're ready, shall we begin this journey of discovery?",
       'ai',
       ['Yes, I\'m ready to begin', 'Tell me more about the process first']
     );
@@ -327,6 +407,10 @@ const ReelPersona: React.FC = () => {
   };
 
   const processUserInput = async (input: string, isChoice: boolean = false, choiceIndex?: number, conflictStyle?: ConflictStyle) => {
+    // Clear any pending speech
+    pendingSpeechRef.current = '';
+    setChatInput('');
+    
     // Add user message
     addMessage(input, 'user');
 
@@ -468,7 +552,6 @@ const ReelPersona: React.FC = () => {
     if (!chatInput.trim() || isTyping) return;
 
     processUserInput(chatInput.trim());
-    setChatInput('');
   };
 
   const handleOptionClick = (option: string, index: number) => {
@@ -477,13 +560,6 @@ const ReelPersona: React.FC = () => {
 
   const handleSimulationChoice = (choice: { text: string; style: ConflictStyle }, index: number) => {
     processUserInput(choice.text, true, index, choice.style);
-  };
-
-  const handleVoiceInput = () => {
-    if (recognition.current && !isListening) {
-      setIsListening(true);
-      recognition.current.start();
-    }
   };
 
   const renderVoiceControls = () => (
@@ -506,6 +582,14 @@ const ReelPersona: React.FC = () => {
           >
             {voiceSettings.autoPlay ? 'Auto' : 'Manual'}
           </button>
+
+          <button
+            className={`${styles.wakeWordToggle} ${voiceSettings.wakeWordEnabled ? styles.enabled : styles.disabled}`}
+            onClick={toggleWakeWord}
+            title={voiceSettings.wakeWordEnabled ? 'Disable "Hey Sensa"' : 'Enable "Hey Sensa"'}
+          >
+            {voiceSettings.wakeWordEnabled ? 'Hey' : 'Off'}
+          </button>
           
           <button
             className={styles.voiceSettingsButton}
@@ -526,13 +610,27 @@ const ReelPersona: React.FC = () => {
       {showVoiceSettings && voiceSettings.enabled && elevenLabsInitialized && (
         <div className={styles.voiceSettingsPanel}>
           <div className={styles.voiceSettingsHeader}>
-            <h4>Sensa's ElevenLabs Voice</h4>
+            <h4>Sensa's Voice & Wake Word</h4>
             <button 
               className={styles.closeSettings}
               onClick={() => setShowVoiceSettings(false)}
             >
               ×
             </button>
+          </div>
+          
+          <div className={styles.voiceOption}>
+            <label>
+              <input
+                type="checkbox"
+                checked={voiceSettings.wakeWordEnabled}
+                onChange={toggleWakeWord}
+              />
+              Enable "Hey Sensa" wake word
+            </label>
+            <p className={styles.wakeWordHelp}>
+              Say "Hey Sensa" followed by your message to talk naturally
+            </p>
           </div>
           
           <div className={styles.voiceOption}>
@@ -617,12 +715,12 @@ const ReelPersona: React.FC = () => {
           </div>
           
           <div className={styles.voiceQualityInfo}>
-            <p><strong>🎙️ ElevenLabs Premium Voice:</strong></p>
+            <p><strong>🎙️ Hey Sensa Features:</strong></p>
             <ul>
-              <li>🎯 Ultra-realistic AI voice synthesis</li>
-              <li>🧘 Optimized for Sensa's calming persona</li>
-              <li>🎵 Professional quality audio</li>
-              <li>⚡ Real-time speech generation</li>
+              <li>🗣️ Say "Hey Sensa" to start talking</li>
+              <li>🎯 Natural conversation flow</li>
+              <li>🔊 Ultra-realistic AI voice</li>
+              <li>⚡ Real-time speech recognition</li>
             </ul>
           </div>
         </div>
@@ -645,15 +743,14 @@ const ReelPersona: React.FC = () => {
           <h2>Meet Sensa - Your AI Personality Analyst</h2>
           <p>
             Experience the future of personality assessment with Sensa, powered by ElevenLabs' 
-            ultra-realistic voice technology. Sensa's deep, calming voice creates an immersive 
-            conversation experience as you explore your professional WHY using the proven 
-            Simon Sinek Golden Circle framework.
+            ultra-realistic voice technology. Simply say <strong>"Hey Sensa"</strong> followed by your message 
+            to have natural voice conversations, just like talking to Siri or Alexa.
           </p>
           <p>
             🎯 <strong>Purpose-Driven:</strong> Discover your professional WHY<br/>
             🤝 <strong>Trust-Focused:</strong> Assess collaboration and leadership potential<br/>
             🧠 <strong>Science-Based:</strong> Built on proven psychological frameworks<br/>
-            🎙️ <strong>ElevenLabs Voice:</strong> Ultra-realistic AI voice for natural conversation
+            🗣️ <strong>"Hey Sensa":</strong> Natural voice conversations like Siri
           </p>
         </div>
 
@@ -680,10 +777,10 @@ const ReelPersona: React.FC = () => {
             </div>
           </div>
           <div className={styles.trustItem}>
-            <Volume2 size={24} />
+            <MicIcon size={24} />
             <div>
-              <h3>ElevenLabs Voice AI</h3>
-              <p>Ultra-realistic voice technology for natural conversation</p>
+              <h3>"Hey Sensa" Voice Control</h3>
+              <p>Natural voice conversations with wake word detection</p>
             </div>
           </div>
         </div>
@@ -713,7 +810,13 @@ const ReelPersona: React.FC = () => {
           <div className={styles.chatHeaderContent}>
             <div className={styles.chatHeaderInfo}>
               <h2><Brain size={24} />Sensa - AI Personality Analyst</h2>
-              <p>Professional assessment using ElevenLabs voice technology</p>
+              <p>Say "Hey Sensa" to start talking naturally</p>
+              {wakeWordStatus && (
+                <div className={styles.wakeWordStatus}>
+                  <MicIcon size={16} className={isListening ? styles.listening : ''} />
+                  <span>{wakeWordStatus}</span>
+                </div>
+              )}
             </div>
             {renderVoiceControls()}
           </div>
@@ -817,29 +920,18 @@ const ReelPersona: React.FC = () => {
 
         <form className={styles.chatForm} onSubmit={handleChatSubmit}>
           <div className={styles.inputContainer}>
-            {recognition.current && (
-              <button
-                type="button"
-                className={`${styles.voiceButton} ${isListening ? styles.listening : ''}`}
-                onClick={handleVoiceInput}
-                disabled={isListening || isTyping}
-                title="Voice input"
-              >
-                <Mic size={20} />
-              </button>
-            )}
             <input
               type="text"
               className={styles.chatInput}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Share your thoughts or use voice input..."
-              disabled={isTyping || isAnalyzing}
+              placeholder={isInConversation ? "Listening... speak your message" : 'Type here or say "Hey Sensa" to talk...'}
+              disabled={isTyping || isAnalyzing || isInConversation}
             />
             <button
               type="submit"
               className={styles.sendButton}
-              disabled={!chatInput.trim() || isTyping || isAnalyzing}
+              disabled={!chatInput.trim() || isTyping || isAnalyzing || isInConversation}
             >
               {isTyping || isAnalyzing ? (
                 <div className={styles.spinner} />
@@ -848,6 +940,13 @@ const ReelPersona: React.FC = () => {
               )}
             </button>
           </div>
+          
+          {voiceSettings.wakeWordEnabled && (
+            <div className={styles.voiceHint}>
+              <MicIcon size={16} className={isListening ? styles.listening : ''} />
+              <span>Say "Hey Sensa" to start voice conversation</span>
+            </div>
+          )}
         </form>
       </div>
     </div>
@@ -878,7 +977,7 @@ const ReelPersona: React.FC = () => {
             <CheckCircle className={styles.saveStatusIcon} size={20} />
             <div className={styles.saveStatusText}>
               <strong>Analysis Complete!</strong>
-              <br />Professional personality assessment by Sensa using ElevenLabs voice technology.
+              <br />Professional personality assessment by Sensa with voice interaction.
             </div>
           </div>
 
@@ -961,7 +1060,7 @@ const ReelPersona: React.FC = () => {
             </div>
 
             <div className={styles.integrationNote}>
-              <p><strong>Assessment Framework:</strong> This analysis was conducted by Sensa using Simon Sinek's Golden Circle methodology with ElevenLabs voice technology.</p>
+              <p><strong>Assessment Framework:</strong> This analysis was conducted by Sensa using Simon Sinek's Golden Circle methodology with voice interaction capabilities.</p>
               <p><strong>Just Cause Alignment:</strong> Evaluated against the organization's purpose: "{justCause}"</p>
             </div>
           </div>
