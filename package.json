@@ -11,6 +11,8 @@
     "lint": "eslint . --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.478.0",
+    "@aws-sdk/client-polly": "^3.478.0",
     "@supabase/supabase-js": "^2.38.0",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
