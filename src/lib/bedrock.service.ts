@@ -201,14 +201,104 @@ const getSystemPrompt = (justCause: string, isSimulation: boolean = false): stri
 };
 
 // --- MODEL FALLBACK FUNCTION ---
-async function tryNextModel(): Promise<boolean> {
-  if (currentModelIndex < CLAUDE_MODELS.length - 1) {
-    currentModelIndex++;
-    currentModel = CLAUDE_MODELS[currentModelIndex];
-    console.log('🔄 BEDROCK: Falling back to model:', currentModel.name, '(' + currentModel.id + ')');
-    return true;
+function isAccessDeniedError(error: any): boolean {
+  if (!error) return false;
+  
+  const errorMessage = error.message || '';
+  const errorName = error.name || '';
+  
+  return (
+    errorName === 'AccessDeniedException' ||
+    errorName === 'ValidationException' ||
+    errorMessage.includes('AccessDeniedException') ||
+    errorMessage.includes('ValidationException') ||
+    errorMessage.includes('403') ||
+    errorMessage.includes('access denied') ||
+    errorMessage.includes("don't have access") ||
+    errorMessage.includes('Forbidden')
+  );
+}
+
+// --- BEDROCK REQUEST HELPER FUNCTION WITH FALLBACK ---
+async function makeBedrockRequestWithFallback(prompt: string, maxTokens: number, isSimulation: boolean): Promise<AIResponse> {
+  let lastError: Error | null = null;
+  
+  // Try each model in sequence until one works
+  for (let attempt = 0; attempt < CLAUDE_MODELS.length; attempt++) {
+    currentModel = CLAUDE_MODELS[attempt];
+    console.log(`🤖 BEDROCK: Attempt ${attempt + 1}/${CLAUDE_MODELS.length} with model:`, currentModel.name, '(' + currentModel.id + ')');
+    
+    try {
+      const requestBody = {
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: isSimulation ? 0.3 : 0.7,
+      };
+
+      console.log('💬 BEDROCK: Request body prepared for model:', currentModel.name, {
+        anthropic_version: requestBody.anthropic_version,
+        max_tokens: requestBody.max_tokens,
+        temperature: requestBody.temperature,
+        messageLength: requestBody.messages[0].content.length,
+        modelId: currentModel.id
+      });
+
+      const command = new InvokeModelCommand({
+        modelId: currentModel.id,
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log('💬 BEDROCK: Invoking model:', currentModel.name, '(' + currentModel.id + ')');
+
+      const response = await bedrockClient.send(command);
+      console.log('✅ BEDROCK: Response received from model:', currentModel.name);
+
+      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+      console.log('💬 BEDROCK: Response body parsed:', {
+        id: responseBody.id,
+        type: responseBody.type,
+        role: responseBody.role,
+        model: responseBody.model,
+        contentLength: responseBody.content?.[0]?.text?.length || 0,
+        usage: responseBody.usage
+      });
+
+      const aiOutput = JSON.parse(responseBody.content[0].text);
+      console.log('💬 BEDROCK: AI output parsed successfully with model:', currentModel.name, {
+        responseLength: aiOutput.response?.length || 0,
+        nextStage: aiOutput.nextStage,
+        hasResponse: !!aiOutput.response
+      });
+
+      // Success! Return the response
+      return {
+        content: aiOutput.response,
+        stage: aiOutput.nextStage,
+        expectsInput: 'text'
+      };
+
+    } catch (error) {
+      console.error(`❌ BEDROCK: Error with model ${currentModel.name}:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // Check if this is an access denied error
+      if (isAccessDeniedError(error)) {
+        console.log(`🔄 BEDROCK: Access denied for model ${currentModel.name}, trying next model...`);
+        continue; // Try next model
+      } else {
+        // For non-access errors, don't try other models
+        console.error(`❌ BEDROCK: Non-access error with model ${currentModel.name}, not trying fallbacks:`, error);
+        throw lastError;
+      }
+    }
   }
-  return false;
+  
+  // If we get here, all models failed
+  console.error('❌ BEDROCK: All models failed. Last error:', lastError);
+  throw new Error(`No available Claude models. Please ensure your AWS account has access to at least one Claude model in the ${VITE_AWS_REGION} region. Last error: ${lastError?.message}`);
 }
 
 // --- CORE CONVERSATION AND SIMULATION FUNCTION ---
@@ -218,50 +308,49 @@ export async function generateAIResponse(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<AIResponse> {
-  console.log('🤖 BEDROCK: generateAIResponse called with model:', currentModel.name);
+  console.log('🤖 BEDROCK: generateAIResponse called');
   console.log('🤖 INPUT:', {
     userMessage: userMessage.substring(0, 100) + '...',
     stage: context.stage,
     historyLength: context.conversationHistory.length,
-    justCause: justCause.substring(0, 50) + '...',
-    currentModel: currentModel.id
+    justCause: justCause.substring(0, 50) + '...'
   });
 
   // --- Simulation Logic ---
   // If we are currently in a simulation, handle the user's choice.
   if (context.stage === 'conflict_simulation' && context.simulation && !context.simulation.isComplete) {
-      console.log('🎭 BEDROCK: Processing simulation choice with model:', currentModel.name);
+      console.log('🎭 BEDROCK: Processing simulation choice');
       const chosenStyle = userMessage as ConflictStyle; // Assume frontend sends the style of the chosen option
       context.simulation.decisionHistory.push(chosenStyle);
       context.simulation.isComplete = true;
 
       // Ask the AI for a concluding remark before moving on
       const prompt = getSystemPrompt(justCause, true);
-      console.log('🎭 BEDROCK: Sending simulation conclusion request to model:', currentModel.name);
+      console.log('🎭 BEDROCK: Sending simulation conclusion request');
       
-      return await makeBedrockRequest(prompt, 200, true);
+      return await makeBedrockRequestWithFallback(prompt, 200, true);
   }
 
   // --- Standard Conversation Logic ---
-  console.log('💬 BEDROCK: Processing standard conversation with model:', currentModel.name);
+  console.log('💬 BEDROCK: Processing standard conversation');
   
-  context.conversationHistory.push({ role: 'user', content: userMessage });
-  const conversationHistoryText = context.conversationHistory.slice(-10).map(msg => `${msg.role}: ${msg.content}`).join('\n');
-
-  const prompt = `${getSystemPrompt(justCause)}
-
-  CURRENT CONTEXT:
-  Stage: ${context.stage}
-  User Profile: ${JSON.stringify(context.userProfile)}
-  RECENT CONVERSATION:
-  ${conversationHistoryText}
-  
-  Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
-
-  console.log('💬 BEDROCK: Prepared prompt for model:', currentModel.name, '(first 200 chars):', prompt.substring(0, 200) + '...');
-
   try {
-    const aiResponse = await makeBedrockRequest(prompt, 1000, false);
+    context.conversationHistory.push({ role: 'user', content: userMessage });
+    const conversationHistoryText = context.conversationHistory.slice(-10).map(msg => `${msg.role}: ${msg.content}`).join('\n');
+
+    const prompt = `${getSystemPrompt(justCause)}
+
+    CURRENT CONTEXT:
+    Stage: ${context.stage}
+    User Profile: ${JSON.stringify(context.userProfile)}
+    RECENT CONVERSATION:
+    ${conversationHistoryText}
+    
+    Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
+
+    console.log('💬 BEDROCK: Prepared prompt (first 200 chars):', prompt.substring(0, 200) + '...');
+
+    const aiResponse = await makeBedrockRequestWithFallback(prompt, 1000, false);
     
     // --- Handle AI's Decision to Start a Simulation ---
     if (aiResponse.stage === 'conflict_simulation') {
@@ -288,28 +377,11 @@ export async function generateAIResponse(
 
     context.conversationHistory.push({ role: 'assistant', content: aiResponse.content });
     
-    console.log('✅ BEDROCK: Standard conversation completed successfully with model:', currentModel.name);
+    console.log('✅ BEDROCK: Standard conversation completed successfully');
     return aiResponse;
 
   } catch (error) {
     console.error('❌ BEDROCK CONVERSATION ERROR:', error);
-    
-    // Check if we can try a fallback model
-    if (error instanceof Error && 
-        (error.message.includes('AccessDeniedException') || 
-         error.message.includes('ValidationException') ||
-         error.message.includes('403'))) {
-      
-      console.log('🔄 BEDROCK: Access denied for model:', currentModel.name, '- trying fallback...');
-      
-      if (await tryNextModel()) {
-        console.log('🔄 BEDROCK: Retrying with fallback model:', currentModel.name);
-        return generateAIResponse(userMessage, context, justCause);
-      } else {
-        console.error('❌ BEDROCK: All models exhausted');
-        throw new Error(`No available Claude models. Please ensure your AWS account has access to at least one Claude model in the ${VITE_AWS_REGION} region.`);
-      }
-    }
     
     // Provide a more graceful failure response for other errors
     console.log('🔄 BEDROCK: Providing fallback response');
@@ -321,80 +393,18 @@ export async function generateAIResponse(
   }
 }
 
-// --- BEDROCK REQUEST HELPER FUNCTION ---
-async function makeBedrockRequest(prompt: string, maxTokens: number, isSimulation: boolean): Promise<AIResponse> {
-  const requestBody = {
-    anthropic_version: 'bedrock-2023-05-31',
-    max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }],
-    temperature: isSimulation ? 0.3 : 0.7,
-  };
-
-  console.log('💬 BEDROCK: Request body prepared for model:', currentModel.name, {
-    anthropic_version: requestBody.anthropic_version,
-    max_tokens: requestBody.max_tokens,
-    temperature: requestBody.temperature,
-    messageLength: requestBody.messages[0].content.length,
-    modelId: currentModel.id
-  });
-
-  const command = new InvokeModelCommand({
-    modelId: currentModel.id,
-    contentType: 'application/json',
-    accept: 'application/json',
-    body: JSON.stringify(requestBody),
-  });
-
-  console.log('💬 BEDROCK: Invoking model:', currentModel.name, '(' + currentModel.id + ')');
-
-  const response = await bedrockClient.send(command);
-  console.log('✅ BEDROCK: Response received from model:', currentModel.name);
-
-  const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-  console.log('💬 BEDROCK: Response body parsed:', {
-    id: responseBody.id,
-    type: responseBody.type,
-    role: responseBody.role,
-    model: responseBody.model,
-    contentLength: responseBody.content?.[0]?.text?.length || 0,
-    usage: responseBody.usage
-  });
-
-  const aiOutput = JSON.parse(responseBody.content[0].text);
-  console.log('💬 BEDROCK: AI output parsed:', {
-    responseLength: aiOutput.response?.length || 0,
-    nextStage: aiOutput.nextStage,
-    hasResponse: !!aiOutput.response
-  });
-
-  if (isSimulation) {
-    return {
-      content: aiOutput.response,
-      stage: aiOutput.nextStage,
-      expectsInput: 'text'
-    };
-  } else {
-    return {
-      content: aiOutput.response,
-      stage: aiOutput.nextStage,
-      expectsInput: 'text'
-    };
-  }
-}
-
 // --- FINAL ANALYSIS FUNCTION ---
 
 export async function generatePersonalityAnalysis(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<CandidatePersonaProfile> {
-  console.log('📊 BEDROCK: generatePersonalityAnalysis called with model:', currentModel.name);
+  console.log('📊 BEDROCK: generatePersonalityAnalysis called');
   console.log('📊 ANALYSIS INPUT:', {
     historyLength: context.conversationHistory.length,
     stage: context.stage,
     hasSimulation: !!context.simulation,
-    justCause: justCause.substring(0, 50) + '...',
-    currentModel: currentModel.id
+    justCause: justCause.substring(0, 50) + '...'
   });
 
   const conversationSummary = context.conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
@@ -437,49 +447,20 @@ export async function generatePersonalityAnalysis(
     "alignmentSummary": "A concluding analysis of how well the candidate's overall persona aligns with the organization's specific Just Cause."
   }`;
 
-  console.log('📊 BEDROCK: Analysis prompt prepared for model:', currentModel.name, '(length):', analysisPrompt.length);
+  console.log('📊 BEDROCK: Analysis prompt prepared (length):', analysisPrompt.length);
 
   try {
-    const requestBody = {
-      anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: analysisPrompt }],
-      temperature: 0.3,
-    };
-
-    console.log('📊 BEDROCK: Analysis request body prepared for model:', currentModel.name, {
-      max_tokens: requestBody.max_tokens,
-      temperature: requestBody.temperature,
-      promptLength: requestBody.messages[0].content.length,
-      modelId: currentModel.id
-    });
-
-    const command = new InvokeModelCommand({
-      modelId: currentModel.id,
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: JSON.stringify(requestBody),
-    });
-
-    console.log('📊 BEDROCK: Invoking model for analysis:', currentModel.name);
-    const response = await bedrockClient.send(command);
-    console.log('✅ BEDROCK: Analysis response received from model:', currentModel.name);
-
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    console.log('📊 BEDROCK: Analysis response body:', {
-      id: responseBody.id,
-      contentLength: responseBody.content?.[0]?.text?.length || 0,
-      usage: responseBody.usage
-    });
-
-    const content = responseBody.content[0].text;
+    const response = await makeBedrockRequestWithFallback(analysisPrompt, 2000, false);
+    
+    // For analysis, we need to parse the JSON from the response content
+    const content = response.content;
     console.log('📊 BEDROCK: Raw analysis content (first 200 chars):', content.substring(0, 200) + '...');
     
     // Extract the JSON object from the response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const analysisResult = JSON.parse(jsonMatch[0]);
-      console.log('✅ BEDROCK: Analysis parsed successfully with model:', currentModel.name, {
+      console.log('✅ BEDROCK: Analysis parsed successfully:', {
         statedWhy: analysisResult.statedWhy?.substring(0, 50) + '...',
         coherenceScore: analysisResult.coherenceScore,
         trustIndex: analysisResult.trustIndex,
@@ -496,23 +477,8 @@ export async function generatePersonalityAnalysis(
     console.error('❌ ANALYSIS ERROR DETAILS:', {
       name: error instanceof Error ? error.name : 'Unknown',
       message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : 'No stack trace',
-      currentModel: currentModel.id
+      stack: error instanceof Error ? error.stack : 'No stack trace'
     });
-    
-    // Check if we can try a fallback model for analysis
-    if (error instanceof Error && 
-        (error.message.includes('AccessDeniedException') || 
-         error.message.includes('ValidationException') ||
-         error.message.includes('403'))) {
-      
-      console.log('🔄 BEDROCK: Access denied for analysis with model:', currentModel.name, '- trying fallback...');
-      
-      if (await tryNextModel()) {
-        console.log('🔄 BEDROCK: Retrying analysis with fallback model:', currentModel.name);
-        return generatePersonalityAnalysis(context, justCause);
-      }
-    }
     
     console.error('❌ BEDROCK: Analysis generation failed completely');
     throw new Error("The AI was unable to generate a final analysis profile.");
