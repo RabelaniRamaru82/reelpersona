@@ -21,7 +21,8 @@ import {
   VolumeX,
   Pause,
   Play,
-  Sparkles
+  Sparkles,
+  Settings
 } from 'lucide-react';
 import styles from './ReelPersona.module.css';
 
@@ -66,6 +67,37 @@ interface VoiceSettings {
   voice: SpeechSynthesisVoice | null;
 }
 
+// Enhanced voice quality scoring system
+const getVoiceQuality = (voice: SpeechSynthesisVoice): number => {
+  let score = 0;
+  const name = voice.name.toLowerCase();
+  const lang = voice.lang.toLowerCase();
+  
+  // Prefer English voices
+  if (lang.startsWith('en-')) score += 10;
+  
+  // High-quality voice indicators
+  if (name.includes('neural') || name.includes('premium') || name.includes('enhanced')) score += 20;
+  if (name.includes('natural') || name.includes('human')) score += 15;
+  
+  // Platform-specific high-quality voices
+  if (name.includes('samantha') || name.includes('alex') || name.includes('victoria')) score += 15;
+  if (name.includes('zira') || name.includes('hazel') || name.includes('aria')) score += 12;
+  if (name.includes('siri') || name.includes('cortana')) score += 10;
+  
+  // Gender preference for professional context
+  if (name.includes('female') || name.includes('woman')) score += 8;
+  
+  // Avoid robotic/synthetic sounding voices
+  if (name.includes('robot') || name.includes('synthetic') || name.includes('computer')) score -= 10;
+  if (name.includes('microsoft') && !name.includes('neural')) score -= 5;
+  
+  // Prefer local voices (usually higher quality)
+  if (voice.localService) score += 5;
+  
+  return score;
+};
+
 const ReelPersona: React.FC = () => {
   // State management
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -94,13 +126,15 @@ const ReelPersona: React.FC = () => {
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
     enabled: true,
     autoPlay: true,
-    rate: 0.9,
+    rate: 0.85, // Slightly slower for more natural feel
     pitch: 1.0,
     voice: null
   });
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [qualityVoices, setQualityVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [currentSpeech, setCurrentSpeech] = useState<SpeechSynthesisUtterance | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
   
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<any>(null);
@@ -189,28 +223,40 @@ const ReelPersona: React.FC = () => {
     }
   }, []);
 
-  // Initialize speech synthesis
+  // Enhanced speech synthesis initialization with better voice selection
   useEffect(() => {
     if ('speechSynthesis' in window) {
       const loadVoices = () => {
         const voices = speechSynthesis.getVoices();
         setAvailableVoices(voices);
         
-        const preferredVoice = voices.find(voice => 
-          voice.lang.startsWith('en') && voice.name.toLowerCase().includes('female')
-        ) || voices.find(voice => 
-          voice.lang.startsWith('en') && voice.name.toLowerCase().includes('samantha')
-        ) || voices.find(voice => 
-          voice.lang.startsWith('en')
-        ) || voices[0];
+        // Filter and rank voices by quality
+        const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
+        const rankedVoices = englishVoices
+          .map(voice => ({ voice, quality: getVoiceQuality(voice) }))
+          .sort((a, b) => b.quality - a.quality)
+          .map(item => item.voice);
         
-        if (preferredVoice && !voiceSettings.voice) {
-          setVoiceSettings(prev => ({ ...prev, voice: preferredVoice }));
+        setQualityVoices(rankedVoices);
+        
+        // Select the best available voice
+        const bestVoice = rankedVoices[0];
+        
+        if (bestVoice && !voiceSettings.voice) {
+          setVoiceSettings(prev => ({ ...prev, voice: bestVoice }));
+          console.log('Selected voice:', bestVoice.name, 'Quality score:', getVoiceQuality(bestVoice));
         }
       };
 
+      // Load voices immediately and on change
       loadVoices();
       speechSynthesis.onvoiceschanged = loadVoices;
+      
+      // Force voice loading on some browsers
+      if (speechSynthesis.getVoices().length === 0) {
+        speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+        setTimeout(loadVoices, 100);
+      }
     }
   }, []);
 
@@ -228,15 +274,28 @@ const ReelPersona: React.FC = () => {
     }
   }, [currentStep]);
 
-  // Voice synthesis functions
+  // Enhanced voice synthesis functions
   const speakText = (text: string, messageId?: string) => {
     if (!voiceSettings.enabled || !('speechSynthesis' in window)) return;
 
     speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    // Clean text for better speech
+    const cleanText = text
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove markdown bold
+      .replace(/\*(.*?)\*/g, '$1') // Remove markdown italic
+      .replace(/`(.*?)`/g, '$1') // Remove code blocks
+      .replace(/#{1,6}\s/g, '') // Remove markdown headers
+      .replace(/\n+/g, '. ') // Replace line breaks with pauses
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    
+    // Enhanced voice settings for more natural speech
     utterance.rate = voiceSettings.rate;
     utterance.pitch = voiceSettings.pitch;
+    utterance.volume = 0.9;
     
     if (voiceSettings.voice) {
       utterance.voice = voiceSettings.voice;
@@ -283,6 +342,21 @@ const ReelPersona: React.FC = () => {
 
   const toggleAutoPlay = () => {
     setVoiceSettings(prev => ({ ...prev, autoPlay: !prev.autoPlay }));
+  };
+
+  const updateVoiceSettings = (updates: Partial<VoiceSettings>) => {
+    setVoiceSettings(prev => ({ ...prev, ...updates }));
+  };
+
+  // Test voice function
+  const testVoice = (voice: SpeechSynthesisVoice) => {
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance("Hello! This is how I sound. I'm your AI personality analyst, and I'm excited to chat with you.");
+    utterance.voice = voice;
+    utterance.rate = voiceSettings.rate;
+    utterance.pitch = voiceSettings.pitch;
+    utterance.volume = 0.9;
+    speechSynthesis.speak(utterance);
   };
 
   // Conversation management
@@ -592,26 +666,103 @@ const ReelPersona: React.FC = () => {
             {voiceSettings.autoPlay ? 'Auto' : 'Manual'}
           </button>
           
-          {availableVoices.length > 0 && (
+          <button
+            className={styles.voiceSettingsButton}
+            onClick={() => setShowVoiceSettings(!showVoiceSettings)}
+            title="Voice settings"
+          >
+            <Settings size={16} />
+          </button>
+        </>
+      )}
+      
+      {showVoiceSettings && voiceSettings.enabled && (
+        <div className={styles.voiceSettingsPanel}>
+          <div className={styles.voiceSettingsHeader}>
+            <h4>Voice Settings</h4>
+            <button 
+              className={styles.closeSettings}
+              onClick={() => setShowVoiceSettings(false)}
+            >
+              ×
+            </button>
+          </div>
+          
+          <div className={styles.voiceOption}>
+            <label>Voice Selection:</label>
             <select
               className={styles.voiceSelect}
               value={voiceSettings.voice?.name || ''}
               onChange={(e) => {
                 const selectedVoice = availableVoices.find(v => v.name === e.target.value);
-                setVoiceSettings(prev => ({ ...prev, voice: selectedVoice || null }));
+                updateVoiceSettings({ voice: selectedVoice || null });
               }}
             >
               <option value="">Default Voice</option>
-              {availableVoices
-                .filter(voice => voice.lang.startsWith('en'))
-                .map(voice => (
+              <optgroup label="🌟 Recommended (High Quality)">
+                {qualityVoices.slice(0, 5).map(voice => (
                   <option key={voice.name} value={voice.name}>
-                    {voice.name.split(' ')[0]}
+                    {voice.name.split(' ')[0]} ({voice.lang})
                   </option>
                 ))}
+              </optgroup>
+              <optgroup label="📱 All Available Voices">
+                {availableVoices
+                  .filter(voice => voice.lang.startsWith('en'))
+                  .map(voice => (
+                    <option key={voice.name} value={voice.name}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+              </optgroup>
             </select>
-          )}
-        </>
+            {voiceSettings.voice && (
+              <button
+                className={styles.testVoiceButton}
+                onClick={() => testVoice(voiceSettings.voice!)}
+                disabled={isSpeaking}
+              >
+                Test Voice
+              </button>
+            )}
+          </div>
+          
+          <div className={styles.voiceOption}>
+            <label>Speaking Speed: {voiceSettings.rate.toFixed(1)}x</label>
+            <input
+              type="range"
+              min="0.5"
+              max="2.0"
+              step="0.1"
+              value={voiceSettings.rate}
+              onChange={(e) => updateVoiceSettings({ rate: parseFloat(e.target.value) })}
+              className={styles.voiceSlider}
+            />
+          </div>
+          
+          <div className={styles.voiceOption}>
+            <label>Voice Pitch: {voiceSettings.pitch.toFixed(1)}</label>
+            <input
+              type="range"
+              min="0.5"
+              max="2.0"
+              step="0.1"
+              value={voiceSettings.pitch}
+              onChange={(e) => updateVoiceSettings({ pitch: parseFloat(e.target.value) })}
+              className={styles.voiceSlider}
+            />
+          </div>
+          
+          <div className={styles.voiceQualityInfo}>
+            <p><strong>💡 Voice Quality Tips:</strong></p>
+            <ul>
+              <li>🌟 Recommended voices are ranked by naturalness</li>
+              <li>🎯 Try different voices to find your preference</li>
+              <li>⚡ Slower speeds (0.8-0.9x) sound more natural</li>
+              <li>🔊 Neural/Premium voices offer the best quality</li>
+            </ul>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -660,8 +811,8 @@ const ReelPersona: React.FC = () => {
           <div className={styles.trustItem}>
             <Volume2 size={24} />
             <div>
-              <h3>Voice Interaction</h3>
-              <p>Speak with AI that responds naturally</p>
+              <h3>Realistic Voice AI</h3>
+              <p>High-quality, natural-sounding voice interaction</p>
             </div>
           </div>
           <div className={styles.trustItem}>
