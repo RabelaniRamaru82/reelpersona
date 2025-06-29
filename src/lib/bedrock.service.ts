@@ -54,6 +54,11 @@ const bedrockClient = new BedrockRuntimeClient({
 
 console.log('✅ BEDROCK: Client initialized with region:', VITE_AWS_REGION);
 
+// --- CLAUDE 4 SONNET MODEL ID ---
+const CLAUDE_4_SONNET_MODEL_ID = 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+
+console.log('🤖 BEDROCK: Using Claude 4 Sonnet model:', CLAUDE_4_SONNET_MODEL_ID);
+
 // --- ENHANCED INTERFACES ALIGNED WITH RESEARCH ---
 
 /**
@@ -183,29 +188,30 @@ export async function generateAIResponse(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<AIResponse> {
-  console.log('🤖 BEDROCK: generateAIResponse called');
+  console.log('🤖 BEDROCK: generateAIResponse called with Claude 4 Sonnet');
   console.log('🤖 INPUT:', {
     userMessage: userMessage.substring(0, 100) + '...',
     stage: context.stage,
     historyLength: context.conversationHistory.length,
-    justCause: justCause.substring(0, 50) + '...'
+    justCause: justCause.substring(0, 50) + '...',
+    modelId: CLAUDE_4_SONNET_MODEL_ID
   });
 
   // --- Simulation Logic ---
   // If we are currently in a simulation, handle the user's choice.
   if (context.stage === 'conflict_simulation' && context.simulation && !context.simulation.isComplete) {
-      console.log('🎭 BEDROCK: Processing simulation choice');
+      console.log('🎭 BEDROCK: Processing simulation choice with Claude 4');
       const chosenStyle = userMessage as ConflictStyle; // Assume frontend sends the style of the chosen option
       context.simulation.decisionHistory.push(chosenStyle);
       context.simulation.isComplete = true;
 
       // Ask the AI for a concluding remark before moving on
       const prompt = getSystemPrompt(justCause, true);
-      console.log('🎭 BEDROCK: Sending simulation conclusion request to Claude');
+      console.log('🎭 BEDROCK: Sending simulation conclusion request to Claude 4');
       
       try {
         const command = new InvokeModelCommand({
-            modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+            modelId: CLAUDE_4_SONNET_MODEL_ID,
             contentType: 'application/json',
             accept: 'application/json',
             body: JSON.stringify({
@@ -215,9 +221,9 @@ export async function generateAIResponse(
             }),
         });
         
-        console.log('🎭 BEDROCK: Invoking Claude for simulation...');
+        console.log('🎭 BEDROCK: Invoking Claude 4 for simulation...');
         const response = await bedrockClient.send(command);
-        console.log('✅ BEDROCK: Simulation response received');
+        console.log('✅ BEDROCK: Claude 4 simulation response received');
         
         const responseBody = JSON.parse(new TextDecoder().decode(response.body));
         console.log('🎭 BEDROCK: Simulation response body:', responseBody);
@@ -235,14 +241,15 @@ export async function generateAIResponse(
         console.error('❌ ERROR DETAILS:', {
           name: error instanceof Error ? error.name : 'Unknown',
           message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : 'No stack trace'
+          stack: error instanceof Error ? error.stack : 'No stack trace',
+          modelId: CLAUDE_4_SONNET_MODEL_ID
         });
         throw error;
       }
   }
 
   // --- Standard Conversation Logic ---
-  console.log('💬 BEDROCK: Processing standard conversation');
+  console.log('💬 BEDROCK: Processing standard conversation with Claude 4');
   
   try {
     context.conversationHistory.push({ role: 'user', content: userMessage });
@@ -258,7 +265,7 @@ export async function generateAIResponse(
     
     Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
 
-    console.log('💬 BEDROCK: Prepared prompt (first 200 chars):', prompt.substring(0, 200) + '...');
+    console.log('💬 BEDROCK: Prepared prompt for Claude 4 (first 200 chars):', prompt.substring(0, 200) + '...');
 
     const requestBody = {
       anthropic_version: 'bedrock-2023-05-31',
@@ -267,32 +274,33 @@ export async function generateAIResponse(
       temperature: 0.7,
     };
 
-    console.log('💬 BEDROCK: Request body prepared:', {
+    console.log('💬 BEDROCK: Request body prepared for Claude 4:', {
       anthropic_version: requestBody.anthropic_version,
       max_tokens: requestBody.max_tokens,
       temperature: requestBody.temperature,
-      messageLength: requestBody.messages[0].content.length
+      messageLength: requestBody.messages[0].content.length,
+      modelId: CLAUDE_4_SONNET_MODEL_ID
     });
 
     const command = new InvokeModelCommand({
-      modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+      modelId: CLAUDE_4_SONNET_MODEL_ID,
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify(requestBody),
     });
 
-    console.log('💬 BEDROCK: Command created, invoking Claude...');
-    console.log('💬 BEDROCK: Model ID:', 'anthropic.claude-3-sonnet-20240229-v1:0');
+    console.log('💬 BEDROCK: Command created, invoking Claude 4...');
+    console.log('💬 BEDROCK: Model ID:', CLAUDE_4_SONNET_MODEL_ID);
 
     const response = await bedrockClient.send(command);
-    console.log('✅ BEDROCK: Response received from Claude');
+    console.log('✅ BEDROCK: Response received from Claude 4');
     console.log('✅ BEDROCK: Response metadata:', {
       $metadata: response.$metadata,
       contentType: response.contentType
     });
 
     const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    console.log('💬 BEDROCK: Response body parsed:', {
+    console.log('💬 BEDROCK: Claude 4 response body parsed:', {
       id: responseBody.id,
       type: responseBody.type,
       role: responseBody.role,
@@ -302,7 +310,7 @@ export async function generateAIResponse(
     });
 
     const aiOutput = JSON.parse(responseBody.content[0].text);
-    console.log('💬 BEDROCK: AI output parsed:', {
+    console.log('💬 BEDROCK: Claude 4 AI output parsed:', {
       responseLength: aiOutput.response?.length || 0,
       nextStage: aiOutput.nextStage,
       hasResponse: !!aiOutput.response
@@ -310,7 +318,7 @@ export async function generateAIResponse(
 
     // --- Handle AI's Decision to Start a Simulation ---
     if (aiOutput.nextStage === 'conflict_simulation') {
-        console.log('🎭 BEDROCK: AI decided to start simulation');
+        console.log('🎭 BEDROCK: Claude 4 decided to start simulation');
         const scenario = SCENARIO_BLUEPRINTS[Math.floor(Math.random() * SCENARIO_BLUEPRINTS.length)];
         console.log('🎭 BEDROCK: Selected scenario:', scenario.id);
         
@@ -333,7 +341,7 @@ export async function generateAIResponse(
 
     context.conversationHistory.push({ role: 'assistant', content: aiOutput.response });
     
-    console.log('✅ BEDROCK: Standard conversation completed successfully');
+    console.log('✅ BEDROCK: Standard conversation completed successfully with Claude 4');
     return {
       content: aiOutput.response,
       stage: aiOutput.nextStage,
@@ -345,7 +353,8 @@ export async function generateAIResponse(
     console.error('❌ ERROR DETAILS:', {
       name: error instanceof Error ? error.name : 'Unknown',
       message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : 'No stack trace'
+      stack: error instanceof Error ? error.stack : 'No stack trace',
+      modelId: CLAUDE_4_SONNET_MODEL_ID
     });
     
     // Check for specific AWS/Bedrock errors
@@ -357,14 +366,23 @@ export async function generateAIResponse(
         isUnauthorizedError: error.message.includes('unauthorized'),
         isBedrockError: error.message.includes('bedrock'),
         isNetworkError: error.message.includes('network'),
-        fullMessage: error.message
-      });
+        isModelAccessError: error.message.includes('model'),
+        fullMessage: error.message,
+        modelId: CLAUDE_4_SONNET_MODEL_ID
+    });
     }
     
     // Provide more specific error handling for authentication issues
     if (error instanceof Error && error.message.includes('security token')) {
       const enhancedError = 'AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.';
       console.error('❌ BEDROCK AUTH ERROR:', enhancedError);
+      throw new Error(enhancedError);
+    }
+    
+    // Handle model access errors specifically
+    if (error instanceof Error && error.message.includes('model')) {
+      const enhancedError = `Model access error with ${CLAUDE_4_SONNET_MODEL_ID}. Please ensure your AWS account has access to Claude 4 Sonnet in the ${VITE_AWS_REGION} region.`;
+      console.error('❌ BEDROCK MODEL ERROR:', enhancedError);
       throw new Error(enhancedError);
     }
     
@@ -384,12 +402,13 @@ export async function generatePersonalityAnalysis(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<CandidatePersonaProfile> {
-  console.log('📊 BEDROCK: generatePersonalityAnalysis called');
+  console.log('📊 BEDROCK: generatePersonalityAnalysis called with Claude 4');
   console.log('📊 ANALYSIS INPUT:', {
     historyLength: context.conversationHistory.length,
     stage: context.stage,
     hasSimulation: !!context.simulation,
-    justCause: justCause.substring(0, 50) + '...'
+    justCause: justCause.substring(0, 50) + '...',
+    modelId: CLAUDE_4_SONNET_MODEL_ID
   });
 
   const conversationSummary = context.conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
@@ -432,7 +451,7 @@ export async function generatePersonalityAnalysis(
     "alignmentSummary": "A concluding analysis of how well the candidate's overall persona aligns with the organization's specific Just Cause."
   }`;
 
-  console.log('📊 BEDROCK: Analysis prompt prepared (length):', analysisPrompt.length);
+  console.log('📊 BEDROCK: Analysis prompt prepared for Claude 4 (length):', analysisPrompt.length);
 
   try {
     const requestBody = {
@@ -442,38 +461,39 @@ export async function generatePersonalityAnalysis(
       temperature: 0.3,
     };
 
-    console.log('📊 BEDROCK: Analysis request body prepared:', {
+    console.log('📊 BEDROCK: Analysis request body prepared for Claude 4:', {
       max_tokens: requestBody.max_tokens,
       temperature: requestBody.temperature,
-      promptLength: requestBody.messages[0].content.length
+      promptLength: requestBody.messages[0].content.length,
+      modelId: CLAUDE_4_SONNET_MODEL_ID
     });
 
     const command = new InvokeModelCommand({
-      modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+      modelId: CLAUDE_4_SONNET_MODEL_ID,
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify(requestBody),
     });
 
-    console.log('📊 BEDROCK: Invoking Claude for analysis...');
+    console.log('📊 BEDROCK: Invoking Claude 4 for analysis...');
     const response = await bedrockClient.send(command);
-    console.log('✅ BEDROCK: Analysis response received');
+    console.log('✅ BEDROCK: Claude 4 analysis response received');
 
     const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    console.log('📊 BEDROCK: Analysis response body:', {
+    console.log('📊 BEDROCK: Claude 4 analysis response body:', {
       id: responseBody.id,
       contentLength: responseBody.content?.[0]?.text?.length || 0,
       usage: responseBody.usage
     });
 
     const content = responseBody.content[0].text;
-    console.log('📊 BEDROCK: Raw analysis content (first 200 chars):', content.substring(0, 200) + '...');
+    console.log('📊 BEDROCK: Raw Claude 4 analysis content (first 200 chars):', content.substring(0, 200) + '...');
     
     // Extract the JSON object from the response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const analysisResult = JSON.parse(jsonMatch[0]);
-      console.log('✅ BEDROCK: Analysis parsed successfully:', {
+      console.log('✅ BEDROCK: Claude 4 analysis parsed successfully:', {
         statedWhy: analysisResult.statedWhy?.substring(0, 50) + '...',
         coherenceScore: analysisResult.coherenceScore,
         trustIndex: analysisResult.trustIndex,
@@ -482,15 +502,16 @@ export async function generatePersonalityAnalysis(
       return analysisResult;
     }
     
-    console.error('❌ BEDROCK: Failed to extract JSON from analysis response');
-    throw new Error("Failed to parse JSON analysis from model response.");
+    console.error('❌ BEDROCK: Failed to extract JSON from Claude 4 analysis response');
+    throw new Error("Failed to parse JSON analysis from Claude 4 model response.");
 
   } catch (error) {
     console.error('❌ BEDROCK ANALYSIS ERROR:', error);
     console.error('❌ ANALYSIS ERROR DETAILS:', {
       name: error instanceof Error ? error.name : 'Unknown',
       message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : 'No stack trace'
+      stack: error instanceof Error ? error.stack : 'No stack trace',
+      modelId: CLAUDE_4_SONNET_MODEL_ID
     });
     
     if (error instanceof Error && error.message.includes('security token')) {
@@ -499,7 +520,13 @@ export async function generatePersonalityAnalysis(
       throw new Error(enhancedError);
     }
     
-    console.error('❌ BEDROCK: Analysis generation failed completely');
-    throw new Error("The AI was unable to generate a final analysis profile.");
+    if (error instanceof Error && error.message.includes('model')) {
+      const enhancedError = `Model access error with ${CLAUDE_4_SONNET_MODEL_ID}. Please ensure your AWS account has access to Claude 4 Sonnet in the ${VITE_AWS_REGION} region.`;
+      console.error('❌ BEDROCK ANALYSIS MODEL ERROR:', enhancedError);
+      throw new Error(enhancedError);
+    }
+    
+    console.error('❌ BEDROCK: Claude 4 analysis generation failed completely');
+    throw new Error("The AI was unable to generate a final analysis profile using Claude 4 Sonnet.");
   }
 }
