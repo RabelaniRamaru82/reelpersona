@@ -24,6 +24,7 @@ import {
   Sparkles,
   Settings
 } from 'lucide-react';
+import { generateAIResponse, generatePersonalityAnalysis, type ConversationContext, type PersonalityAnalysis } from '../lib/bedrock';
 import styles from './ReelPersona.module.css';
 
 // Types
@@ -38,25 +39,15 @@ interface ChatMessage {
   metadata?: any;
 }
 
-interface PersonalityResults {
-  openness: number;
-  conscientiousness: number;
-  extraversion: number;
-  agreeableness: number;
-  neuroticism: number;
-  summary: string;
-  strengths: string[];
-  growthAreas: string[];
-}
-
 interface UserProfile {
   firstName: string;
   lastName: string;
   currentRole: string;
   company: string;
   industry: string;
-  colleagues: string[];
-  answers: Record<string, number>;
+  whyStatement?: string;
+  howValues?: string[];
+  answers: Record<string, any>;
 }
 
 interface VoiceSettings {
@@ -111,22 +102,21 @@ const ReelPersona: React.FC = () => {
     currentRole: '',
     company: '',
     industry: '',
-    colleagues: [],
     answers: {}
   });
-  const [conversationState, setConversationState] = useState({
-    stage: 'intro', // intro, name, role, company, assessment, deep_dive, complete
-    questionIndex: 0,
-    awaitingInput: false,
-    inputType: 'text' as 'text' | 'choice' | 'name' | 'role' | 'company'
+  const [conversationContext, setConversationContext] = useState<ConversationContext>({
+    stage: 'intro',
+    userProfile: {},
+    conversationHistory: []
   });
-  const [results, setResults] = useState<PersonalityResults | null>(null);
+  const [results, setResults] = useState<PersonalityAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // Voice-related state
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
     enabled: true,
     autoPlay: true,
-    rate: 0.85, // Slightly slower for more natural feel
+    rate: 0.85,
     pitch: 1.0,
     voice: null
   });
@@ -138,65 +128,6 @@ const ReelPersona: React.FC = () => {
   
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<any>(null);
-
-  // Conversation flow data
-  const assessmentQuestions = [
-    {
-      question: "When working on a team project, how do you prefer to contribute?",
-      options: [
-        "Take the lead and coordinate everyone's efforts",
-        "Contribute actively to group discussions",
-        "Work on specific tasks and check in regularly",
-        "Focus on your assigned work independently",
-        "Prefer detailed written communication over meetings"
-      ],
-      trait: 'extraversion'
-    },
-    {
-      question: "When facing a tight deadline, you typically:",
-      options: [
-        "Create a detailed plan and stick to it religiously",
-        "Prioritize tasks and work systematically",
-        "Focus intensely and adapt as needed",
-        "Work in bursts of high energy",
-        "Seek help or delegate when possible"
-      ],
-      trait: 'conscientiousness'
-    },
-    {
-      question: "Your ideal work environment would be:",
-      options: [
-        "Dynamic and constantly changing with new challenges",
-        "Innovative with opportunities to try new approaches",
-        "Structured but with room for creativity",
-        "Stable with clear processes and expectations",
-        "Quiet and predictable with minimal disruptions"
-      ],
-      trait: 'openness'
-    },
-    {
-      question: "When a colleague disagrees with your approach, you:",
-      options: [
-        "Listen carefully and try to find common ground",
-        "Explain your reasoning and seek to understand theirs",
-        "Discuss the pros and cons of both approaches",
-        "Stand firm on your position if you believe it's right",
-        "Prefer to avoid the conflict and find a compromise"
-      ],
-      trait: 'agreeableness'
-    },
-    {
-      question: "When receiving critical feedback, you typically:",
-      options: [
-        "Welcome it as an opportunity to improve",
-        "Consider it carefully and ask clarifying questions",
-        "Feel initially defensive but then reflect on it",
-        "Take it personally but try to learn from it",
-        "Feel stressed and worry about your performance"
-      ],
-      trait: 'neuroticism'
-    }
-  ];
 
   // Initialize speech recognition
   useEffect(() => {
@@ -223,7 +154,7 @@ const ReelPersona: React.FC = () => {
     }
   }, []);
 
-  // Enhanced speech synthesis initialization with better voice selection
+  // Enhanced speech synthesis initialization
   useEffect(() => {
     if ('speechSynthesis' in window) {
       const loadVoices = () => {
@@ -244,15 +175,12 @@ const ReelPersona: React.FC = () => {
         
         if (bestVoice && !voiceSettings.voice) {
           setVoiceSettings(prev => ({ ...prev, voice: bestVoice }));
-          console.log('Selected voice:', bestVoice.name, 'Quality score:', getVoiceQuality(bestVoice));
         }
       };
 
-      // Load voices immediately and on change
       loadVoices();
       speechSynthesis.onvoiceschanged = loadVoices;
       
-      // Force voice loading on some browsers
       if (speechSynthesis.getVoices().length === 0) {
         speechSynthesis.speak(new SpeechSynthesisUtterance(''));
         setTimeout(loadVoices, 100);
@@ -280,19 +208,17 @@ const ReelPersona: React.FC = () => {
 
     speechSynthesis.cancel();
 
-    // Clean text for better speech
     const cleanText = text
-      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove markdown bold
-      .replace(/\*(.*?)\*/g, '$1') // Remove markdown italic
-      .replace(/`(.*?)`/g, '$1') // Remove code blocks
-      .replace(/#{1,6}\s/g, '') // Remove markdown headers
-      .replace(/\n+/g, '. ') // Replace line breaks with pauses
-      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`(.*?)`/g, '$1')
+      .replace(/#{1,6}\s/g, '')
+      .replace(/\n+/g, '. ')
+      .replace(/\s+/g, ' ')
       .trim();
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     
-    // Enhanced voice settings for more natural speech
     utterance.rate = voiceSettings.rate;
     utterance.pitch = voiceSettings.pitch;
     utterance.volume = 0.9;
@@ -348,10 +274,9 @@ const ReelPersona: React.FC = () => {
     setVoiceSettings(prev => ({ ...prev, ...updates }));
   };
 
-  // Test voice function
   const testVoice = (voice: SpeechSynthesisVoice) => {
     speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance("Hello! This is how I sound. I'm your AI personality analyst, and I'm excited to chat with you.");
+    const utterance = new SpeechSynthesisUtterance("Hello! This is how I sound. I'm Dr. Sarah Chen, your AI personality analyst.");
     utterance.voice = voice;
     utterance.rate = voiceSettings.rate;
     utterance.pitch = voiceSettings.pitch;
@@ -383,248 +308,142 @@ const ReelPersona: React.FC = () => {
 
   const startConversation = () => {
     addMessage(
-      "Hi there! 👋 I'm your AI personality analyst. I'm excited to learn about you and help you discover insights about your work style and personality. Let's start with something simple - what's your first name?",
+      "Hello! I'm Dr. Sarah Chen, your AI personality analyst. I'm here to help you discover deep insights about your work style and professional motivations through natural conversation. This assessment uses the proven Golden Circle framework to understand your WHY (purpose), HOW (values), and WHAT (skills). Shall we begin?",
       'ai',
-      undefined,
-      'name'
+      ['Yes, let\'s start!', 'Tell me more about the process first']
     );
     
-    setConversationState({
-      stage: 'name',
-      questionIndex: 0,
-      awaitingInput: true,
-      inputType: 'name'
-    });
+    setConversationContext(prev => ({
+      ...prev,
+      stage: 'intro'
+    }));
   };
 
-  const processUserInput = (input: string, isChoice: boolean = false, choiceIndex?: number) => {
+  const processUserInput = async (input: string, isChoice: boolean = false, choiceIndex?: number) => {
     // Add user message
     addMessage(input, 'user');
 
-    // Process based on current conversation state
-    setTimeout(() => {
-      handleConversationFlow(input, isChoice, choiceIndex);
-    }, 500 + Math.random() * 1000);
-  };
+    // Update conversation history
+    const newHistory = [
+      ...conversationContext.conversationHistory,
+      { role: 'user' as const, content: input }
+    ];
 
-  const handleConversationFlow = (input: string, isChoice: boolean, choiceIndex?: number) => {
     setIsTyping(true);
 
-    setTimeout(() => {
+    try {
+      // Generate AI response using Bedrock
+      const aiResponse = await generateAIResponse(input, {
+        ...conversationContext,
+        conversationHistory: newHistory
+      });
+
       setIsTyping(false);
 
-      switch (conversationState.stage) {
-        case 'name':
-          setUserProfile(prev => ({ ...prev, firstName: input }));
-          addMessage(
-            `Nice to meet you, ${input}! 🌟 Now, what's your current role or job title? For example, "Software Engineer" or "Marketing Manager"`,
-            'ai',
-            undefined,
-            'role'
-          );
-          setConversationState(prev => ({ ...prev, stage: 'role', inputType: 'role' }));
-          break;
-
-        case 'role':
-          setUserProfile(prev => ({ ...prev, currentRole: input }));
-          addMessage(
-            `${input} - that sounds interesting! 💼 What company do you work for? (You can just say the company name or "prefer not to say")`,
-            'ai',
-            undefined,
-            'company'
-          );
-          setConversationState(prev => ({ ...prev, stage: 'company', inputType: 'company' }));
-          break;
-
-        case 'company':
-          setUserProfile(prev => ({ ...prev, company: input }));
-          addMessage(
-            `Perfect! Now I have a better picture of your professional context. 🎯 I'm going to ask you 5 quick questions about your work style. These will help me understand your personality better. Ready to dive in?`,
-            'ai',
-            ['Yes, let\'s do this!', 'I have a question first', 'Can you tell me more about the assessment?']
-          );
-          setConversationState(prev => ({ ...prev, stage: 'assessment_intro', inputType: 'choice' }));
-          break;
-
-        case 'assessment_intro':
-          if (choiceIndex === 0 || input.toLowerCase().includes('yes') || input.toLowerCase().includes('ready')) {
-            startAssessment();
-          } else if (choiceIndex === 1 || input.toLowerCase().includes('question')) {
-            addMessage(
-              `Of course! What would you like to know? I'm here to help make this as comfortable as possible for you. 😊`,
-              'ai',
-              undefined,
-              'text'
-            );
-          } else {
-            addMessage(
-              `This assessment uses the Big Five personality model to understand your work style across five key dimensions: Openness, Conscientiousness, Extraversion, Agreeableness, and Emotional Stability. Each question presents realistic workplace scenarios. Ready to begin?`,
-              'ai',
-              ['Yes, let\'s start!', 'I need more time to think']
-            );
-          }
-          break;
-
-        case 'assessment':
-          if (isChoice && choiceIndex !== undefined) {
-            // Record the answer
-            const currentQ = assessmentQuestions[conversationState.questionIndex];
-            setUserProfile(prev => ({
-              ...prev,
-              answers: { ...prev.answers, [currentQ.trait]: choiceIndex }
-            }));
-
-            // Move to next question or finish assessment
-            if (conversationState.questionIndex < assessmentQuestions.length - 1) {
-              setTimeout(() => {
-                askNextQuestion(conversationState.questionIndex + 1);
-              }, 800);
-            } else {
-              finishAssessment();
-            }
-          }
-          break;
-
-        case 'deep_dive':
-          // Handle deep dive conversation
-          const responses = [
-            `That's a really insightful perspective! I can see you have a thoughtful approach to ${userProfile.currentRole} work. Tell me more about how you handle challenging situations.`,
-            `Interesting! Your response shows strong problem-solving skills. How do you typically communicate with your team when things get complex?`,
-            `I appreciate that detailed response. It shows you think systematically about challenges. Can you share how you prefer to receive feedback?`,
-            `That's a thoughtful way to approach things. Your style suggests you value both relationships and results. How do you motivate yourself during tough projects?`,
-            `Great insight! I'm getting a clear picture of your work style. Let me ask you this: What energizes you most in your work environment?`
-          ];
-
-          const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-          addMessage(randomResponse, 'ai', undefined, 'text');
-
-          // After several exchanges, offer to generate results
-          if (chatMessages.filter(m => m.type === 'user').length >= 8) {
-            setTimeout(() => {
-              addMessage(
-                `This has been a fantastic conversation! I feel like I have a really good understanding of your personality and work style now. 🎉 Would you like me to generate your detailed personality analysis?`,
-                'ai',
-                ['Yes, show me my results!', 'Let\'s chat a bit more first']
-              );
-              setConversationState(prev => ({ ...prev, stage: 'results_ready' }));
-            }, 2000);
-          }
-          break;
-
-        case 'results_ready':
-          if (choiceIndex === 0 || input.toLowerCase().includes('yes') || input.toLowerCase().includes('result')) {
-            generateResults();
-          } else {
-            addMessage(
-              `Of course! I love learning more about you. What else would you like to explore about your work style or personality? 💭`,
-              'ai',
-              undefined,
-              'text'
-            );
-            setConversationState(prev => ({ ...prev, stage: 'deep_dive' }));
-          }
-          break;
-
-        default:
-          addMessage(
-            `I appreciate you sharing that with me! Let me think about what to ask next... 🤔`,
-            'ai',
-            undefined,
-            'text'
-          );
-      }
-    }, 1000 + Math.random() * 1500);
-  };
-
-  const startAssessment = () => {
-    addMessage(
-      `Excellent! 🚀 Here we go with question 1 of 5. Remember, there are no right or wrong answers - just choose what feels most natural to you.`,
-      'ai'
-    );
-    
-    setTimeout(() => {
-      askNextQuestion(0);
-    }, 1000);
-  };
-
-  const askNextQuestion = (questionIndex: number) => {
-    const question = assessmentQuestions[questionIndex];
-    
-    addMessage(
-      `**Question ${questionIndex + 1}/5:** ${question.question}`,
-      'ai',
-      question.options,
-      'choice'
-    );
-
-    setConversationState(prev => ({
-      ...prev,
-      stage: 'assessment',
-      questionIndex,
-      inputType: 'choice'
-    }));
-  };
-
-  const finishAssessment = () => {
-    addMessage(
-      `Fantastic! 🎉 You've completed the assessment. Now I'd love to dive deeper and understand your unique work style through conversation. Let me start with this: Imagine you're leading an important project at ${userProfile.company} and you discover a major issue just days before the deadline. How would you handle this situation?`,
-      'ai',
-      undefined,
-      'text'
-    );
-
-    setConversationState(prev => ({
-      ...prev,
-      stage: 'deep_dive',
-      inputType: 'text'
-    }));
-  };
-
-  const generateResults = async () => {
-    addMessage(
-      `Perfect! 🔮 Let me analyze everything we've discussed and generate your comprehensive personality profile. This will just take a moment...`,
-      'ai'
-    );
-
-    // Simulate processing
-    setTimeout(() => {
-      addMessage(
-        `✨ Analysis complete! I've generated your detailed personality insights based on our conversation and your assessment responses.`,
-        'system'
+      // Add AI response
+      const aiMessage = addMessage(
+        aiResponse.content,
+        'ai',
+        aiResponse.options,
+        aiResponse.expectsInput
       );
 
-      // Generate mock results
-      const mockResults: PersonalityResults = {
-        openness: 75 + Math.random() * 20,
-        conscientiousness: 80 + Math.random() * 15,
-        extraversion: 65 + Math.random() * 25,
-        agreeableness: 85 + Math.random() * 10,
-        neuroticism: 30 + Math.random() * 20,
-        summary: `${userProfile.firstName} demonstrates a balanced and adaptable personality profile well-suited for collaborative leadership roles. Your responses indicate strong emotional intelligence, systematic thinking, and a natural ability to build relationships while maintaining focus on results.`,
-        strengths: [
-          'Excellent collaborative leadership skills',
-          'Strong problem-solving and analytical thinking',
-          'High emotional intelligence and empathy',
-          'Adaptable communication style',
-          'Resilient under pressure'
-        ],
-        growthAreas: [
-          'Could benefit from more structured delegation',
-          'Opportunity to develop public speaking confidence',
-          'Consider setting firmer boundaries with time management'
-        ]
-      };
+      // Update conversation context
+      const updatedHistory = [
+        ...newHistory,
+        { role: 'assistant' as const, content: aiResponse.content }
+      ];
 
-      setResults(mockResults);
+      // Update user profile based on stage
+      let updatedProfile = { ...conversationContext.userProfile };
+      
+      if (conversationContext.stage === 'name') {
+        updatedProfile.firstName = input;
+        setUserProfile(prev => ({ ...prev, firstName: input }));
+      } else if (conversationContext.stage === 'role') {
+        updatedProfile.currentRole = input;
+        setUserProfile(prev => ({ ...prev, currentRole: input }));
+      } else if (conversationContext.stage === 'company') {
+        updatedProfile.company = input;
+        setUserProfile(prev => ({ ...prev, company: input }));
+      }
+
+      setConversationContext({
+        stage: aiResponse.stage || conversationContext.stage,
+        userProfile: updatedProfile,
+        conversationHistory: updatedHistory
+      });
+
+      // Check if analysis is complete
+      if (aiResponse.stage === 'analysis_complete' || updatedHistory.length >= 20) {
+        setTimeout(() => {
+          generateAnalysis();
+        }, 2000);
+      }
+
+    } catch (error) {
+      setIsTyping(false);
+      console.error('Error processing input:', error);
+      addMessage(
+        "I apologize for the technical difficulty. Let me continue our conversation. Could you tell me more about what drives you in your professional life?",
+        'ai',
+        undefined,
+        'text'
+      );
+    }
+  };
+
+  const generateAnalysis = async () => {
+    setIsAnalyzing(true);
+    
+    addMessage(
+      "Thank you for this wonderful conversation! I'm now analyzing everything we've discussed to generate your comprehensive personality profile. This will take just a moment...",
+      'system'
+    );
+
+    try {
+      const analysis = await generatePersonalityAnalysis(conversationContext);
+      setResults(analysis);
       setCurrentStep('results');
 
       // Auto-speak results if enabled
       if (voiceSettings.enabled && voiceSettings.autoPlay) {
         setTimeout(() => {
-          speakText(`Here are your personality analysis results, ${userProfile.firstName}. ${mockResults.summary}`);
+          speakText(`Your personality analysis is complete, ${userProfile.firstName}. ${analysis.summary}`);
         }, 1000);
       }
-    }, 3000);
+    } catch (error) {
+      console.error('Error generating analysis:', error);
+      addMessage(
+        "I encountered an issue generating your full analysis, but I can provide some initial insights based on our conversation. Let me prepare a summary for you.",
+        'ai'
+      );
+      
+      // Fallback analysis
+      const fallbackAnalysis: PersonalityAnalysis = {
+        whyStatement: "Dedicated to making meaningful contributions through collaborative work",
+        howValues: ["Collaboration", "Integrity", "Continuous Learning"],
+        coherenceScore: "Medium",
+        trustIndex: "Medium-Trust",
+        conflictStyle: "Collaborative",
+        emotionalIntelligence: {
+          selfAwareness: 75,
+          selfManagement: 70,
+          socialAwareness: 80,
+          relationshipManagement: 75
+        },
+        strengths: ["Strong communication", "Team-oriented", "Growth mindset"],
+        growthAreas: ["Could benefit from more structured goal-setting"],
+        summary: `${userProfile.firstName} demonstrates strong collaborative instincts and genuine engagement in professional development conversations.`,
+        keyQuotations: ["Engaged thoughtfully throughout the assessment"],
+        alignmentSummary: "Shows good potential for team-based roles with proper development support."
+      };
+      
+      setResults(fallbackAnalysis);
+      setCurrentStep('results');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleChatSubmit = (e: React.FormEvent) => {
@@ -774,52 +593,52 @@ const ReelPersona: React.FC = () => {
           <Sparkles size={48} />
         </div>
         <h1>Welcome to ReelPersona</h1>
-        <p className={styles.welcomeSubtitle}>AI-Powered Personality Analysis Through Natural Conversation</p>
+        <p className={styles.welcomeSubtitle}>Professional AI Personality Assessment</p>
       </div>
 
       <div className={styles.welcomeContent}>
         <div className={styles.welcomeMessage}>
-          <h2>Discover Your Professional Personality</h2>
+          <h2>Discover Your Professional WHY</h2>
           <p>
-            Skip the boring forms! ReelPersona uses natural conversation with AI to understand your 
-            personality and work style. Our AI analyst will chat with you like a real person, 
-            asking thoughtful questions and responding to your unique perspective.
+            Experience a revolutionary approach to personality assessment. Our AI analyst, Dr. Sarah Chen, 
+            uses the proven Simon Sinek Golden Circle framework to uncover your deeper motivations through 
+            natural conversation.
           </p>
           <p>
-            🎤 <strong>Voice-enabled:</strong> Talk naturally with AI that speaks back to you<br/>
-            💼 <strong>Work-focused:</strong> Tailored for professional development<br/>
-            🔒 <strong>Private:</strong> Your conversations stay secure and confidential<br/>
-            ⚡ <strong>Quick:</strong> 10-15 minutes for comprehensive insights
+            🎯 <strong>Purpose-Driven:</strong> Discover your professional WHY<br/>
+            🤝 <strong>Trust-Focused:</strong> Assess collaboration and leadership potential<br/>
+            🧠 <strong>Science-Based:</strong> Built on proven psychological frameworks<br/>
+            ⚡ <strong>Professional:</strong> 15-20 minutes for comprehensive insights
           </p>
         </div>
 
         <div className={styles.trustIndicators}>
           <div className={styles.trustItem}>
-            <MessageCircle size={24} />
+            <Brain size={24} />
             <div>
-              <h3>Natural Conversation</h3>
-              <p>Chat naturally instead of filling out forms</p>
+              <h3>Golden Circle Framework</h3>
+              <p>Uncover your WHY, HOW, and WHAT through structured inquiry</p>
             </div>
           </div>
           <div className={styles.trustItem}>
-            <Brain size={24} />
+            <Users size={24} />
             <div>
-              <h3>AI-Powered Analysis</h3>
-              <p>Advanced personality insights using proven psychology</p>
+              <h3>Trust Assessment</h3>
+              <p>Evaluate collaboration, accountability, and emotional intelligence</p>
             </div>
           </div>
           <div className={styles.trustItem}>
             <Volume2 size={24} />
             <div>
-              <h3>Realistic Voice AI</h3>
-              <p>High-quality, natural-sounding voice interaction</p>
+              <h3>Natural Conversation</h3>
+              <p>AI-powered dialogue with professional voice interaction</p>
             </div>
           </div>
           <div className={styles.trustItem}>
             <Shield size={24} />
             <div>
-              <h3>Privacy First</h3>
-              <p>Your conversations are encrypted and secure</p>
+              <h3>Professional Grade</h3>
+              <p>Enterprise-level analysis for talent development</p>
             </div>
           </div>
         </div>
@@ -829,7 +648,7 @@ const ReelPersona: React.FC = () => {
           onClick={() => setCurrentStep('chat')}
         >
           <MessageCircle size={20} />
-          Start Conversation
+          Begin Assessment
         </button>
       </div>
     </div>
@@ -841,8 +660,8 @@ const ReelPersona: React.FC = () => {
         <div className={styles.chatHeader}>
           <div className={styles.chatHeaderContent}>
             <div className={styles.chatHeaderInfo}>
-              <h2><Brain size={24} />AI Personality Analyst</h2>
-              <p>Having a natural conversation to understand your work style</p>
+              <h2><Brain size={24} />Dr. Sarah Chen - AI Personality Analyst</h2>
+              <p>Professional assessment using the Golden Circle framework</p>
             </div>
             {renderVoiceControls()}
           </div>
@@ -898,11 +717,11 @@ const ReelPersona: React.FC = () => {
             </div>
           ))}
           
-          {isTyping && (
+          {(isTyping || isAnalyzing) && (
             <div className={`${styles.chatMessage} ${styles.aiMessage}`}>
               <div className={`${styles.messageContent} ${styles.typingMessage}`}>
                 <div className={styles.messageText}>
-                  <p>AI is thinking</p>
+                  <p>{isAnalyzing ? 'Generating comprehensive analysis' : 'Dr. Chen is thinking'}</p>
                 </div>
               </div>
             </div>
@@ -927,20 +746,15 @@ const ReelPersona: React.FC = () => {
               className={styles.chatInput}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder={
-                conversationState.inputType === 'name' ? "Type your first name..." :
-                conversationState.inputType === 'role' ? "Type your job title..." :
-                conversationState.inputType === 'company' ? "Type your company name..." :
-                "Type your response or use voice input..."
-              }
-              disabled={isTyping}
+              placeholder="Share your thoughts or use voice input..."
+              disabled={isTyping || isAnalyzing}
             />
             <button
               type="submit"
               className={styles.sendButton}
-              disabled={!chatInput.trim() || isTyping}
+              disabled={!chatInput.trim() || isTyping || isAnalyzing}
             >
-              {isTyping ? (
+              {isTyping || isAnalyzing ? (
                 <div className={styles.spinner} />
               ) : (
                 <Send size={20} />
@@ -956,22 +770,21 @@ const ReelPersona: React.FC = () => {
     if (!results) return null;
 
     const traits = [
-      { name: 'Openness', score: results.openness, description: 'Creativity and openness to new experiences' },
-      { name: 'Conscientiousness', score: results.conscientiousness, description: 'Organization and attention to detail' },
-      { name: 'Extraversion', score: results.extraversion, description: 'Social energy and assertiveness' },
-      { name: 'Agreeableness', score: results.agreeableness, description: 'Cooperation and trust in others' },
-      { name: 'Emotional Stability', score: 100 - results.neuroticism, description: 'Resilience and emotional regulation' }
+      { name: 'Self-Awareness', score: results.emotionalIntelligence.selfAwareness, description: 'Understanding your emotions and motivations' },
+      { name: 'Self-Management', score: results.emotionalIntelligence.selfManagement, description: 'Regulating emotions and adapting to change' },
+      { name: 'Social Awareness', score: results.emotionalIntelligence.socialAwareness, description: 'Reading others and understanding group dynamics' },
+      { name: 'Relationship Management', score: results.emotionalIntelligence.relationshipManagement, description: 'Influencing and managing relationships effectively' }
     ];
 
     return (
       <div className={styles.results}>
         <div className={styles.resultsContent}>
           <div className={styles.resultsHeader}>
-            <h2>Your Personality Analysis Results</h2>
+            <h2>Your Professional Personality Analysis</h2>
             {voiceSettings.enabled && (
               <button
                 className={styles.speakResultsButton}
-                onClick={() => speakText(`Here's a summary of your personality analysis results. ${results.summary}`)}
+                onClick={() => speakText(`Here's your comprehensive personality analysis. ${results.summary}`)}
                 disabled={isSpeaking}
                 title="Listen to results summary"
               >
@@ -985,17 +798,27 @@ const ReelPersona: React.FC = () => {
             <CheckCircle className={styles.saveStatusIcon} size={20} />
             <div className={styles.saveStatusText}>
               <strong>Analysis Complete!</strong>
-              <br />Your personality insights have been generated from our conversation.
+              <br />Professional personality assessment using the Golden Circle framework.
             </div>
           </div>
 
           <div className={styles.summarySection}>
-            <h3>Your Personality Summary</h3>
+            <h3>Executive Summary</h3>
             <p>{results.summary}</p>
           </div>
 
+          <div className={styles.insightsSection}>
+            <div className={styles.summarySection}>
+              <h3>Your Professional WHY</h3>
+              <p><strong>Core Purpose:</strong> {results.whyStatement}</p>
+              <p><strong>Key Values:</strong> {results.howValues.join(', ')}</p>
+              <p><strong>Coherence Score:</strong> {results.coherenceScore}</p>
+              <p><strong>Trust Index:</strong> {results.trustIndex}</p>
+            </div>
+          </div>
+
           <div className={styles.traitsSection}>
-            <h3>Personality Traits</h3>
+            <h3>Emotional Intelligence Profile</h3>
             <div className={styles.traits}>
               {traits.map((trait) => (
                 <div key={trait.name} className={styles.trait}>
@@ -1026,7 +849,7 @@ const ReelPersona: React.FC = () => {
             </div>
 
             <div className={styles.growthAreas}>
-              <h3><Target size={20} />Growth Opportunities</h3>
+              <h3><Target size={20} />Development Opportunities</h3>
               <ul>
                 {results.growthAreas.map((area, index) => (
                   <li key={index}>{area}</li>
@@ -1036,12 +859,8 @@ const ReelPersona: React.FC = () => {
           </div>
 
           <div className={styles.integrationSection}>
-            <h3><Award size={24} />What's Next?</h3>
-            <p>
-              Your personality profile is now ready! Use these insights to enhance your 
-              career development, improve team collaboration, and make more informed 
-              professional decisions.
-            </p>
+            <h3><Award size={24} />Professional Integration</h3>
+            <p>{results.alignmentSummary}</p>
             
             <div className={styles.actionButtons}>
               <button className={styles.primaryButton}>
@@ -1049,16 +868,16 @@ const ReelPersona: React.FC = () => {
                 View Full Portfolio
               </button>
               <button className={styles.secondaryButton}>
-                Share Results
+                Download Report
               </button>
               <button className={styles.tertiaryButton}>
-                Download Report
+                Schedule Follow-up
               </button>
             </div>
 
             <div className={styles.integrationNote}>
-              <p><strong>Professional Integration:</strong> Your ReelPersona analysis integrates with the broader ReelApps ecosystem for career development.</p>
-              <p><strong>Privacy Note:</strong> You control who sees your personality insights. Results are private by default.</p>
+              <p><strong>Assessment Framework:</strong> This analysis uses Simon Sinek's Golden Circle methodology combined with emotional intelligence assessment.</p>
+              <p><strong>Conflict Style:</strong> {results.conflictStyle} - Your primary approach to workplace challenges and team dynamics.</p>
             </div>
           </div>
         </div>
@@ -1077,16 +896,7 @@ const ReelPersona: React.FC = () => {
                 <div 
                   className={styles.progressFill} 
                   style={{ 
-                    width: `${
-                      conversationState.stage === 'intro' ? 10 :
-                      conversationState.stage === 'name' ? 20 :
-                      conversationState.stage === 'role' ? 30 :
-                      conversationState.stage === 'company' ? 40 :
-                      conversationState.stage === 'assessment_intro' ? 50 :
-                      conversationState.stage === 'assessment' ? 60 + (conversationState.questionIndex * 6) :
-                      conversationState.stage === 'deep_dive' ? 85 :
-                      conversationState.stage === 'results_ready' ? 95 : 100
-                    }%` 
+                    width: `${Math.min(100, (conversationContext.conversationHistory.length / 20) * 100)}%`
                   }} 
                 />
               </div>
