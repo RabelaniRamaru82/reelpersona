@@ -24,9 +24,13 @@
     /* Path mapping */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@reelapps/auth": ["./ReelApps/packages/auth/src"],
+      "@reelapps/ui": ["./ReelApps/packages/ui/src"],
+      "@reelapps/types": ["./ReelApps/packages/types/src"],
+      "@reelapps/config": ["./ReelApps/packages/config/src"]
     }
   },
-  "include": ["src", "vite.config.ts"],
+  "include": ["src", "vite.config.ts", "ReelApps/packages/*/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
-} 
+}
