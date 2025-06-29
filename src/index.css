@@ -1,4 +1,4 @@
-@import url('../../ReelApps/src/styles/globals.css');
+@import url('../ReelApps/src/styles/globals.css');
 
 /* Additional animations for ReelPersona */
 @keyframes spin {
