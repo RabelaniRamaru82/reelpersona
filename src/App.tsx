@@ -1,67 +1,39 @@
 import { useEffect, useState } from 'react'
-import { useAuthStore, initializeSupabase } from '@reelapps/auth'
-import { AppWrapper } from '@reelapps/ui'
 import ReelPersona from './components/ReelPersona'
 import './index.css'
 
 function App() {
-  const {
-    initialize,
-    isLoading,
-    isInitializing: storeInitializing,
-    isAuthenticated,
-    user,
-    login,
-    signup,
-    sendPasswordResetEmail,
-    error,
-  } = useAuthStore();
-  const [localInitializing, setLocalInitializing] = useState(true);
-  const [initError, setInitError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-        if (!supabaseUrl || !supabaseAnonKey) throw new Error('Missing Supabase env');
-        initializeSupabase(supabaseUrl, supabaseAnonKey);
-        await initialize();
-      } catch (error) {
-        setInitError(error instanceof Error ? error.message : 'Init error');
-      } finally {
-        setLocalInitializing(false);
-      }
-    };
-    init();
+    // Simulate initialization
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1000);
 
     // Force dark mode on the document
     document.documentElement.setAttribute('data-theme', 'dark');
     document.body.classList.add('gradient-background');
-  }, [initialize]);
 
-  if (localInitializing || isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  }
+    return () => clearTimeout(timer);
+  }, []);
 
-  if (initError) {
-    return <div className="min-h-screen flex items-center justify-center">{initError}</div>;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <AppWrapper
-      isAuthenticated={isAuthenticated}
-      isInitializing={storeInitializing ?? false}
-      user={user}
-      error={error ?? null}
-      onLogin={login}
-      onSignup={signup}
-      onPasswordReset={sendPasswordResetEmail}
-      isLoading={isLoading ?? false}
-    >
+    <div className="min-h-screen bg-slate-900">
       <ReelPersona />
-    </AppWrapper>
+    </div>
   );
 }
 
-export default App 
+export default App
