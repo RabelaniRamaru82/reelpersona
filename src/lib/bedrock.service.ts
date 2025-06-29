@@ -3,19 +3,46 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SCENARIO_BLUEPRINTS, ScenarioBlueprint, ConflictStyle } from './simulation';
 
-// --- ROBUST AWS CLIENT INITIALIZATION ---
-// Throws an error if essential environment variables are missing.
+// --- ROBUST AWS CLIENT INITIALIZATION WITH DEBUGGING ---
+console.log('🔍 BEDROCK SERVICE: Starting initialization...');
+
 const { VITE_AWS_REGION, VITE_AWS_ACCESS_KEY_ID, VITE_AWS_SECRET_ACCESS_KEY } = import.meta.env;
 
+console.log('🔍 BEDROCK ENV CHECK:', {
+  hasRegion: !!VITE_AWS_REGION,
+  hasAccessKey: !!VITE_AWS_ACCESS_KEY_ID,
+  hasSecretKey: !!VITE_AWS_SECRET_ACCESS_KEY,
+  region: VITE_AWS_REGION,
+  accessKeyPrefix: VITE_AWS_ACCESS_KEY_ID ? VITE_AWS_ACCESS_KEY_ID.substring(0, 8) + '...' : 'MISSING',
+  secretKeyPrefix: VITE_AWS_SECRET_ACCESS_KEY ? VITE_AWS_SECRET_ACCESS_KEY.substring(0, 8) + '...' : 'MISSING'
+});
+
 if (!VITE_AWS_REGION || !VITE_AWS_ACCESS_KEY_ID || !VITE_AWS_SECRET_ACCESS_KEY) {
-  throw new Error("Missing required AWS environment variables for Bedrock client.");
+  const error = "Missing required AWS environment variables for Bedrock client.";
+  console.error('❌ BEDROCK ERROR:', error);
+  console.error('❌ MISSING VARS:', {
+    VITE_AWS_REGION: !VITE_AWS_REGION,
+    VITE_AWS_ACCESS_KEY_ID: !VITE_AWS_ACCESS_KEY_ID,
+    VITE_AWS_SECRET_ACCESS_KEY: !VITE_AWS_SECRET_ACCESS_KEY
+  });
+  throw new Error(error);
 }
 
 // Check for placeholder values that indicate invalid credentials
 if (VITE_AWS_ACCESS_KEY_ID === 'YOUR_VALID_ACCESS_KEY_ID_HERE' || 
-    VITE_AWS_SECRET_ACCESS_KEY === 'YOUR_VALID_SECRET_ACCESS_KEY_HERE') {
-  throw new Error("Please replace the placeholder AWS credentials in your .env file with valid AWS credentials.");
+    VITE_AWS_SECRET_ACCESS_KEY === 'YOUR_VALID_SECRET_ACCESS_KEY_HERE' ||
+    VITE_AWS_ACCESS_KEY_ID === 'your_aws_access_key_id_here' ||
+    VITE_AWS_SECRET_ACCESS_KEY === 'your_aws_secret_access_key_here') {
+  const error = "Please replace the placeholder AWS credentials in your .env file with valid AWS credentials.";
+  console.error('❌ BEDROCK ERROR:', error);
+  console.error('❌ PLACEHOLDER DETECTED:', {
+    accessKey: VITE_AWS_ACCESS_KEY_ID,
+    secretKey: VITE_AWS_SECRET_ACCESS_KEY.substring(0, 20) + '...'
+  });
+  throw new Error(error);
 }
+
+console.log('✅ BEDROCK: Environment variables validated');
 
 const bedrockClient = new BedrockRuntimeClient({
   region: VITE_AWS_REGION,
@@ -24,6 +51,8 @@ const bedrockClient = new BedrockRuntimeClient({
     secretAccessKey: VITE_AWS_SECRET_ACCESS_KEY,
   },
 });
+
+console.log('✅ BEDROCK: Client initialized with region:', VITE_AWS_REGION);
 
 // --- ENHANCED INTERFACES ALIGNED WITH RESEARCH ---
 
@@ -154,37 +183,67 @@ export async function generateAIResponse(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<AIResponse> {
+  console.log('🤖 BEDROCK: generateAIResponse called');
+  console.log('🤖 INPUT:', {
+    userMessage: userMessage.substring(0, 100) + '...',
+    stage: context.stage,
+    historyLength: context.conversationHistory.length,
+    justCause: justCause.substring(0, 50) + '...'
+  });
+
   // --- Simulation Logic ---
   // If we are currently in a simulation, handle the user's choice.
   if (context.stage === 'conflict_simulation' && context.simulation && !context.simulation.isComplete) {
+      console.log('🎭 BEDROCK: Processing simulation choice');
       const chosenStyle = userMessage as ConflictStyle; // Assume frontend sends the style of the chosen option
       context.simulation.decisionHistory.push(chosenStyle);
       context.simulation.isComplete = true;
 
       // Ask the AI for a concluding remark before moving on
       const prompt = getSystemPrompt(justCause, true);
-      const command = new InvokeModelCommand({
-          modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
-          contentType: 'application/json',
-          accept: 'application/json',
-          body: JSON.stringify({
-            anthropic_version: 'bedrock-2023-05-31',
-            max_tokens: 200,
-            messages: [{ role: 'user', content: prompt }],
-          }),
-      });
-      const response = await bedrockClient.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-      const aiOutput = JSON.parse(responseBody.content[0].text);
+      console.log('🎭 BEDROCK: Sending simulation conclusion request to Claude');
+      
+      try {
+        const command = new InvokeModelCommand({
+            modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+            contentType: 'application/json',
+            accept: 'application/json',
+            body: JSON.stringify({
+              anthropic_version: 'bedrock-2023-05-31',
+              max_tokens: 200,
+              messages: [{ role: 'user', content: prompt }],
+            }),
+        });
+        
+        console.log('🎭 BEDROCK: Invoking Claude for simulation...');
+        const response = await bedrockClient.send(command);
+        console.log('✅ BEDROCK: Simulation response received');
+        
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+        console.log('🎭 BEDROCK: Simulation response body:', responseBody);
+        
+        const aiOutput = JSON.parse(responseBody.content[0].text);
+        console.log('🎭 BEDROCK: Parsed simulation AI output:', aiOutput);
 
-      return {
-          content: aiOutput.response,
-          stage: aiOutput.nextStage, // AI transitions to the next stage
-          expectsInput: 'text'
-      };
+        return {
+            content: aiOutput.response,
+            stage: aiOutput.nextStage, // AI transitions to the next stage
+            expectsInput: 'text'
+        };
+      } catch (error) {
+        console.error('❌ BEDROCK SIMULATION ERROR:', error);
+        console.error('❌ ERROR DETAILS:', {
+          name: error instanceof Error ? error.name : 'Unknown',
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : 'No stack trace'
+        });
+        throw error;
+      }
   }
 
   // --- Standard Conversation Logic ---
+  console.log('💬 BEDROCK: Processing standard conversation');
+  
   try {
     context.conversationHistory.push({ role: 'user', content: userMessage });
     const conversationHistoryText = context.conversationHistory.slice(-10).map(msg => `${msg.role}: ${msg.content}`).join('\n');
@@ -199,25 +258,62 @@ export async function generateAIResponse(
     
     Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
 
+    console.log('💬 BEDROCK: Prepared prompt (first 200 chars):', prompt.substring(0, 200) + '...');
+
+    const requestBody = {
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+    };
+
+    console.log('💬 BEDROCK: Request body prepared:', {
+      anthropic_version: requestBody.anthropic_version,
+      max_tokens: requestBody.max_tokens,
+      temperature: requestBody.temperature,
+      messageLength: requestBody.messages[0].content.length
+    });
+
     const command = new InvokeModelCommand({
       modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
       contentType: 'application/json',
       accept: 'application/json',
-      body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
+    console.log('💬 BEDROCK: Command created, invoking Claude...');
+    console.log('💬 BEDROCK: Model ID:', 'anthropic.claude-3-sonnet-20240229-v1:0');
+
     const response = await bedrockClient.send(command);
+    console.log('✅ BEDROCK: Response received from Claude');
+    console.log('✅ BEDROCK: Response metadata:', {
+      $metadata: response.$metadata,
+      contentType: response.contentType
+    });
+
     const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    console.log('💬 BEDROCK: Response body parsed:', {
+      id: responseBody.id,
+      type: responseBody.type,
+      role: responseBody.role,
+      model: responseBody.model,
+      contentLength: responseBody.content?.[0]?.text?.length || 0,
+      usage: responseBody.usage
+    });
+
     const aiOutput = JSON.parse(responseBody.content[0].text);
+    console.log('💬 BEDROCK: AI output parsed:', {
+      responseLength: aiOutput.response?.length || 0,
+      nextStage: aiOutput.nextStage,
+      hasResponse: !!aiOutput.response
+    });
 
     // --- Handle AI's Decision to Start a Simulation ---
     if (aiOutput.nextStage === 'conflict_simulation') {
+        console.log('🎭 BEDROCK: AI decided to start simulation');
         const scenario = SCENARIO_BLUEPRINTS[Math.floor(Math.random() * SCENARIO_BLUEPRINTS.length)];
+        console.log('🎭 BEDROCK: Selected scenario:', scenario.id);
+        
         context.simulation = {
             scenario,
             decisionHistory: [],
@@ -237,6 +333,7 @@ export async function generateAIResponse(
 
     context.conversationHistory.push({ role: 'assistant', content: aiOutput.response });
     
+    console.log('✅ BEDROCK: Standard conversation completed successfully');
     return {
       content: aiOutput.response,
       stage: aiOutput.nextStage,
@@ -244,14 +341,35 @@ export async function generateAIResponse(
     };
 
   } catch (error) {
-    console.error('Bedrock API error:', error);
+    console.error('❌ BEDROCK CONVERSATION ERROR:', error);
+    console.error('❌ ERROR DETAILS:', {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
+    
+    // Check for specific AWS/Bedrock errors
+    if (error instanceof Error) {
+      console.error('❌ ERROR ANALYSIS:', {
+        isSecurityTokenError: error.message.includes('security token'),
+        isCredentialsError: error.message.includes('credentials'),
+        isAccessDeniedError: error.message.includes('access denied'),
+        isUnauthorizedError: error.message.includes('unauthorized'),
+        isBedrockError: error.message.includes('bedrock'),
+        isNetworkError: error.message.includes('network'),
+        fullMessage: error.message
+      });
+    }
     
     // Provide more specific error handling for authentication issues
     if (error instanceof Error && error.message.includes('security token')) {
-      throw new Error('AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.');
+      const enhancedError = 'AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.';
+      console.error('❌ BEDROCK AUTH ERROR:', enhancedError);
+      throw new Error(enhancedError);
     }
     
     // Provide a more graceful failure response for other errors
+    console.log('🔄 BEDROCK: Providing fallback response');
     return {
       content: "I seem to be having a technical issue. I apologize. Let's try to continue. Could you please tell me more about a time you felt truly fulfilled in your work?",
       expectsInput: 'text',
@@ -266,6 +384,14 @@ export async function generatePersonalityAnalysis(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<CandidatePersonaProfile> {
+  console.log('📊 BEDROCK: generatePersonalityAnalysis called');
+  console.log('📊 ANALYSIS INPUT:', {
+    historyLength: context.conversationHistory.length,
+    stage: context.stage,
+    hasSimulation: !!context.simulation,
+    justCause: justCause.substring(0, 50) + '...'
+  });
+
   const conversationSummary = context.conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
 
   const analysisPrompt = `As Sensa, analyze the complete conversation transcript and simulation results to produce a comprehensive Candidate Persona Profile.
@@ -306,37 +432,74 @@ export async function generatePersonalityAnalysis(
     "alignmentSummary": "A concluding analysis of how well the candidate's overall persona aligns with the organization's specific Just Cause."
   }`;
 
+  console.log('📊 BEDROCK: Analysis prompt prepared (length):', analysisPrompt.length);
+
   try {
+    const requestBody = {
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: analysisPrompt }],
+      temperature: 0.3,
+    };
+
+    console.log('📊 BEDROCK: Analysis request body prepared:', {
+      max_tokens: requestBody.max_tokens,
+      temperature: requestBody.temperature,
+      promptLength: requestBody.messages[0].content.length
+    });
+
     const command = new InvokeModelCommand({
       modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
       contentType: 'application/json',
       accept: 'application/json',
-      body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: analysisPrompt }],
-        temperature: 0.3,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
+    console.log('📊 BEDROCK: Invoking Claude for analysis...');
     const response = await bedrockClient.send(command);
+    console.log('✅ BEDROCK: Analysis response received');
+
     const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    console.log('📊 BEDROCK: Analysis response body:', {
+      id: responseBody.id,
+      contentLength: responseBody.content?.[0]?.text?.length || 0,
+      usage: responseBody.usage
+    });
+
     const content = responseBody.content[0].text;
+    console.log('📊 BEDROCK: Raw analysis content (first 200 chars):', content.substring(0, 200) + '...');
     
     // Extract the JSON object from the response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const analysisResult = JSON.parse(jsonMatch[0]);
+      console.log('✅ BEDROCK: Analysis parsed successfully:', {
+        statedWhy: analysisResult.statedWhy?.substring(0, 50) + '...',
+        coherenceScore: analysisResult.coherenceScore,
+        trustIndex: analysisResult.trustIndex,
+        dominantConflictStyle: analysisResult.dominantConflictStyle
+      });
+      return analysisResult;
     }
+    
+    console.error('❌ BEDROCK: Failed to extract JSON from analysis response');
     throw new Error("Failed to parse JSON analysis from model response.");
 
   } catch (error) {
-    console.error('Analysis generation error:', error);
+    console.error('❌ BEDROCK ANALYSIS ERROR:', error);
+    console.error('❌ ANALYSIS ERROR DETAILS:', {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
     
     if (error instanceof Error && error.message.includes('security token')) {
-      throw new Error('AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.');
+      const enhancedError = 'AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.';
+      console.error('❌ BEDROCK ANALYSIS AUTH ERROR:', enhancedError);
+      throw new Error(enhancedError);
     }
     
+    console.error('❌ BEDROCK: Analysis generation failed completely');
     throw new Error("The AI was unable to generate a final analysis profile.");
   }
 }
