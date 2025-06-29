@@ -16,7 +16,11 @@ import {
   BarChart3,
   TrendingUp,
   Award,
-  ExternalLink
+  ExternalLink,
+  Volume2,
+  VolumeX,
+  Pause,
+  Play
 } from 'lucide-react';
 import styles from './ReelPersona.module.css';
 
@@ -33,6 +37,7 @@ interface ChatMessage {
   type: 'user' | 'ai';
   content: string;
   timestamp: Date;
+  isPlaying?: boolean;
 }
 
 interface PersonalityResults {
@@ -53,6 +58,14 @@ interface WorkContext {
   company: string;
   industry: string;
   colleagues: string[];
+}
+
+interface VoiceSettings {
+  enabled: boolean;
+  autoPlay: boolean;
+  rate: number;
+  pitch: number;
+  voice: SpeechSynthesisVoice | null;
 }
 
 // Sample questions for personality assessment
@@ -140,6 +153,18 @@ const ReelPersona: React.FC = () => {
   const [results, setResults] = useState<PersonalityResults | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   
+  // Voice-related state
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
+    enabled: true,
+    autoPlay: true,
+    rate: 0.9,
+    pitch: 1.0,
+    voice: null
+  });
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [currentSpeech, setCurrentSpeech] = useState<SpeechSynthesisUtterance | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<any>(null);
 
@@ -168,6 +193,49 @@ const ReelPersona: React.FC = () => {
     }
   }, []);
 
+  // Initialize speech synthesis
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const loadVoices = () => {
+        const voices = speechSynthesis.getVoices();
+        setAvailableVoices(voices);
+        
+        // Try to find a good default voice (prefer female, English)
+        const preferredVoice = voices.find(voice => 
+          voice.lang.startsWith('en') && voice.name.toLowerCase().includes('female')
+        ) || voices.find(voice => 
+          voice.lang.startsWith('en') && voice.name.toLowerCase().includes('samantha')
+        ) || voices.find(voice => 
+          voice.lang.startsWith('en')
+        ) || voices[0];
+        
+        if (preferredVoice && !voiceSettings.voice) {
+          setVoiceSettings(prev => ({ ...prev, voice: preferredVoice }));
+        }
+      };
+
+      loadVoices();
+      speechSynthesis.onvoiceschanged = loadVoices;
+
+      // Handle speech events
+      const handleSpeechEnd = () => {
+        setIsSpeaking(false);
+        setCurrentSpeech(null);
+        setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+      };
+
+      const handleSpeechError = () => {
+        setIsSpeaking(false);
+        setCurrentSpeech(null);
+        setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+      };
+
+      return () => {
+        speechSynthesis.onvoiceschanged = null;
+      };
+    }
+  }, []);
+
   // Auto-scroll chat messages
   useEffect(() => {
     if (chatMessagesRef.current) {
@@ -185,8 +253,71 @@ const ReelPersona: React.FC = () => {
         timestamp: new Date()
       };
       setChatMessages([initialMessage]);
+      
+      // Auto-speak the initial message if voice is enabled
+      if (voiceSettings.enabled && voiceSettings.autoPlay) {
+        setTimeout(() => speakText(initialMessage.content, initialMessage.id), 500);
+      }
     }
-  }, [currentStep, workContext.firstName, workContext.company]);
+  }, [currentStep, workContext.firstName, workContext.company, voiceSettings.enabled, voiceSettings.autoPlay]);
+
+  // Voice synthesis functions
+  const speakText = (text: string, messageId?: string) => {
+    if (!voiceSettings.enabled || !('speechSynthesis' in window)) return;
+
+    // Stop any current speech
+    speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = voiceSettings.rate;
+    utterance.pitch = voiceSettings.pitch;
+    
+    if (voiceSettings.voice) {
+      utterance.voice = voiceSettings.voice;
+    }
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setCurrentSpeech(utterance);
+      if (messageId) {
+        setChatMessages(prev => prev.map(msg => 
+          msg.id === messageId ? { ...msg, isPlaying: true } : { ...msg, isPlaying: false }
+        ));
+      }
+    };
+
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setCurrentSpeech(null);
+      setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+    };
+
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setCurrentSpeech(null);
+      setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+    };
+
+    speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeech = () => {
+    speechSynthesis.cancel();
+    setIsSpeaking(false);
+    setCurrentSpeech(null);
+    setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+  };
+
+  const toggleVoice = () => {
+    setVoiceSettings(prev => ({ ...prev, enabled: !prev.enabled }));
+    if (isSpeaking) {
+      stopSpeech();
+    }
+  };
+
+  const toggleAutoPlay = () => {
+    setVoiceSettings(prev => ({ ...prev, autoPlay: !prev.autoPlay }));
+  };
 
   const handleAnswerSelect = (answerIndex: number) => {
     const currentQuestion = SAMPLE_QUESTIONS[currentQuestionIndex];
@@ -242,6 +373,11 @@ const ReelPersona: React.FC = () => {
 
       setChatMessages(prev => [...prev, aiMessage]);
       setIsTyping(false);
+
+      // Auto-speak AI response if enabled
+      if (voiceSettings.enabled && voiceSettings.autoPlay) {
+        setTimeout(() => speakText(randomResponse, aiMessage.id), 300);
+      }
     }, 1500 + Math.random() * 1000);
   };
 
@@ -301,13 +437,79 @@ const ReelPersona: React.FC = () => {
     setResults(mockResults);
     setIsProcessing(false);
     setCurrentStep('results');
+
+    // Speak the results summary if voice is enabled
+    if (voiceSettings.enabled && voiceSettings.autoPlay) {
+      setTimeout(() => {
+        speakText(`Here are your personality analysis results, ${workContext.firstName}. ${mockResults.summary}`);
+      }, 1000);
+    }
   };
+
+  const renderVoiceControls = () => (
+    <div className={styles.voiceControls}>
+      <button
+        className={`${styles.voiceToggle} ${voiceSettings.enabled ? styles.enabled : styles.disabled}`}
+        onClick={toggleVoice}
+        title={voiceSettings.enabled ? 'Disable AI voice' : 'Enable AI voice'}
+      >
+        {voiceSettings.enabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+      </button>
+      
+      {voiceSettings.enabled && (
+        <>
+          <button
+            className={`${styles.autoPlayToggle} ${voiceSettings.autoPlay ? styles.enabled : styles.disabled}`}
+            onClick={toggleAutoPlay}
+            title={voiceSettings.autoPlay ? 'Disable auto-play' : 'Enable auto-play'}
+          >
+            {voiceSettings.autoPlay ? 'Auto' : 'Manual'}
+          </button>
+          
+          {availableVoices.length > 0 && (
+            <select
+              className={styles.voiceSelect}
+              value={voiceSettings.voice?.name || ''}
+              onChange={(e) => {
+                const selectedVoice = availableVoices.find(v => v.name === e.target.value);
+                setVoiceSettings(prev => ({ ...prev, voice: selectedVoice || null }));
+              }}
+            >
+              <option value="">Default Voice</option>
+              {availableVoices
+                .filter(voice => voice.lang.startsWith('en'))
+                .map(voice => (
+                  <option key={voice.name} value={voice.name}>
+                    {voice.name} ({voice.lang})
+                  </option>
+                ))}
+            </select>
+          )}
+          
+          <div className={styles.voiceSettings}>
+            <label>
+              Speed: {voiceSettings.rate.toFixed(1)}
+              <input
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.1"
+                value={voiceSettings.rate}
+                onChange={(e) => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))}
+                className={styles.voiceSlider}
+              />
+            </label>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   const renderWelcome = () => (
     <div className={styles.welcome}>
       <div className={styles.welcomeHeader}>
         <h1>Welcome to ReelPersona</h1>
-        <p className={styles.welcomeSubtitle}>AI-Powered Personality Analysis for Professional Growth</p>
+        <p className={styles.welcomeSubtitle}>AI-Powered Personality Analysis with Voice Interaction</p>
       </div>
 
       <div className={styles.welcomeContent}>
@@ -327,6 +529,13 @@ const ReelPersona: React.FC = () => {
             </div>
           </div>
           <div className={styles.trustItem}>
+            <Volume2 size={24} />
+            <div>
+              <h3>Voice Interaction</h3>
+              <p>Natural conversation with AI that speaks back to you</p>
+            </div>
+          </div>
+          <div className={styles.trustItem}>
             <Users size={24} />
             <div>
               <h3>Professional Focus</h3>
@@ -343,7 +552,8 @@ const ReelPersona: React.FC = () => {
           </p>
           <p>
             Our assessment takes approximately 15-20 minutes and includes personalized scenarios based 
-            on your actual work environment.
+            on your actual work environment. The AI will speak with you naturally, creating an engaging 
+            conversational experience.
           </p>
         </div>
 
@@ -367,8 +577,8 @@ const ReelPersona: React.FC = () => {
             <div className={styles.processStep}>
               <div className={styles.stepNumber}>3</div>
               <div>
-                <h4>AI Conversation</h4>
-                <p>Discuss real workplace scenarios with our AI analyst</p>
+                <h4>Voice Conversation</h4>
+                <p>Discuss real workplace scenarios with our AI analyst using voice or text</p>
               </div>
             </div>
             <div className={styles.processStep}>
@@ -419,6 +629,12 @@ const ReelPersona: React.FC = () => {
           <p>You can delete your data at any time. We automatically purge inactive accounts.</p>
           <span className={styles.privacyBadge}>Your Control</span>
         </div>
+        <div className={styles.privacyCard}>
+          <Mic size={32} />
+          <h3>Voice Privacy</h3>
+          <p>Voice interactions are processed locally in your browser, not stored on servers.</p>
+          <span className={styles.privacyBadge}>Local Only</span>
+        </div>
       </div>
 
       <div className={styles.privacyAssurance}>
@@ -428,6 +644,7 @@ const ReelPersona: React.FC = () => {
           <li>✓ Assessment responses - for personality analysis</li>
           <li>✓ Chat interactions - for deeper insights</li>
           <li>✓ Usage analytics - for improving the experience</li>
+          <li>✓ Voice preferences - stored locally for your convenience</li>
         </ul>
       </div>
 
@@ -630,25 +847,56 @@ const ReelPersona: React.FC = () => {
     <div className={styles.chat}>
       <div className={styles.chatContent}>
         <div className={styles.chatHeader}>
-          <h2><MessageCircle size={24} />AI Personality Analysis</h2>
-          <p>Let's explore your work style through personalized scenarios</p>
+          <div className={styles.chatHeaderContent}>
+            <div>
+              <h2><MessageCircle size={24} />AI Personality Analysis</h2>
+              <p>Let's explore your work style through personalized scenarios</p>
+            </div>
+            {renderVoiceControls()}
+          </div>
         </div>
 
         <div className={styles.chatMessages} ref={chatMessagesRef}>
           {chatMessages.map((message) => (
             <div key={message.id} className={`${styles.chatMessage} ${styles[message.type + 'Message']}`}>
               <div className={`${styles.messageContent} ${isTyping && message === chatMessages[chatMessages.length - 1] ? styles.typingMessage : ''}`}>
-                <p>{message.content}</p>
-                <div className={styles.messageTime}>
-                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div className={styles.messageText}>
+                  <p>{message.content}</p>
+                  <div className={styles.messageTime}>
+                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
+                {message.type === 'ai' && voiceSettings.enabled && (
+                  <div className={styles.messageActions}>
+                    {message.isPlaying ? (
+                      <button
+                        className={styles.speechButton}
+                        onClick={stopSpeech}
+                        title="Stop speaking"
+                      >
+                        <Pause size={16} />
+                      </button>
+                    ) : (
+                      <button
+                        className={styles.speechButton}
+                        onClick={() => speakText(message.content, message.id)}
+                        title="Speak this message"
+                        disabled={isSpeaking}
+                      >
+                        <Play size={16} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))}
           {isTyping && (
             <div className={`${styles.chatMessage} ${styles.aiMessage}`}>
               <div className={`${styles.messageContent} ${styles.typingMessage}`}>
-                <p>AI is thinking</p>
+                <div className={styles.messageText}>
+                  <p>AI is thinking</p>
+                </div>
               </div>
             </div>
           )}
@@ -665,6 +913,7 @@ const ReelPersona: React.FC = () => {
                 className={`${styles.voiceButton} ${isListening ? styles.listening : ''}`}
                 onClick={handleVoiceInput}
                 disabled={isListening}
+                title="Voice input"
               >
                 <Mic size={20} />
               </button>
@@ -674,7 +923,7 @@ const ReelPersona: React.FC = () => {
               className={styles.chatInput}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Type your response..."
+              placeholder="Type your response or use voice input..."
               disabled={isTyping}
             />
             <button
@@ -731,6 +980,21 @@ const ReelPersona: React.FC = () => {
     return (
       <div className={styles.results}>
         <div className={styles.resultsContent}>
+          <div className={styles.resultsHeader}>
+            <h2>Your Personality Analysis Results</h2>
+            {voiceSettings.enabled && (
+              <button
+                className={styles.speakResultsButton}
+                onClick={() => speakText(`Here's a summary of your personality analysis results. ${results.summary}`)}
+                disabled={isSpeaking}
+                title="Listen to results summary"
+              >
+                {isSpeaking ? <Pause size={20} /> : <Volume2 size={20} />}
+                {isSpeaking ? 'Stop' : 'Listen to Summary'}
+              </button>
+            )}
+          </div>
+
           <div className={styles.saveStatus}>
             <CheckCircle className={styles.saveStatusIcon} size={20} />
             <div className={styles.saveStatusText}>
