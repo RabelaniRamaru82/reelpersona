@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('../../ReelApps/src/styles/globals.css');
 
 /* Additional animations for ReelPersona */
 @keyframes spin {
@@ -10,25 +8,15 @@
 
 /* Enhanced background for gradient experience */
 .gradient-background {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  background: var(--gradient-hero) !important;
   background-attachment: fixed !important;
 }
 
 /* Enhanced glassmorphism effects */
 .glass-effect {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--gradient-glass);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-/* CSS Variables for consistent theming */
-:root {
-  --bg-primary: #0f172a;
-  --text-primary: #f8fafc;
-  --text-inverse: #ffffff;
-  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --gradient-glass: rgba(255, 255, 255, 0.1);
-  --gradient-hero: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 /* --- ReelPersona layout helpers (retain Ascension palette) --- */
