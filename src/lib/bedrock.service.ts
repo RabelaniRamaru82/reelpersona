@@ -188,197 +188,218 @@ Current region: ${VITE_AWS_REGION}`;
   return `AWS Bedrock Error: ${errorMessage}. Please check your AWS configuration and try again.`;
 };
 
-// --- CORE CONVERSATION AND SIMULATION FUNCTION ---
+// --- BEDROCK SERVICE CLASS ---
+
+export class BedrockService {
+  // --- CORE CONVERSATION AND SIMULATION FUNCTION ---
+  async generateResponse(
+    userMessage: string,
+    context: ConversationContext,
+    justCause: string = "To empower individuals and organizations to discover and live their purpose"
+  ): Promise<AIResponse> {
+    // --- Simulation Logic ---
+    // If we are currently in a simulation, handle the user's choice.
+    if (context.stage === 'conflict_simulation' && context.simulation && !context.simulation.isComplete) {
+        const chosenStyle = userMessage as ConflictStyle; // Assume frontend sends the style of the chosen option
+        context.simulation.decisionHistory.push(chosenStyle);
+        context.simulation.isComplete = true;
+
+        // Ask the AI for a concluding remark before moving on
+        const prompt = getSystemPrompt(justCause, true);
+        
+        try {
+          const command = new InvokeModelCommand({
+              modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+              contentType: 'application/json',
+              accept: 'application/json',
+              body: JSON.stringify({
+                anthropic_version: 'bedrock-2023-05-31',
+                max_tokens: 200,
+                messages: [{ role: 'user', content: prompt }],
+              }),
+          });
+          const response = await bedrockClient.send(command);
+          const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+          const aiOutput = JSON.parse(responseBody.content[0].text);
+
+          return {
+              content: aiOutput.response,
+              stage: aiOutput.nextStage, // AI transitions to the next stage
+              expectsInput: 'text'
+          };
+        } catch (error) {
+          console.error('Bedrock simulation error:', error);
+          // Fallback for simulation conclusion
+          return {
+            content: "Thank you for that response. I can see how you approach challenging situations. Let's continue exploring your professional values and experiences.",
+            stage: 'trust_assessment',
+            expectsInput: 'text'
+          };
+        }
+    }
+
+    // --- Standard Conversation Logic ---
+    try {
+      context.conversationHistory.push({ role: 'user', content: userMessage });
+      const conversationHistoryText = context.conversationHistory.slice(-10).map(msg => `${msg.role}: ${msg.content}`).join('\n');
+
+      const prompt = `${getSystemPrompt(justCause)}
+
+      CURRENT CONTEXT:
+      Stage: ${context.stage}
+      User Profile: ${JSON.stringify(context.userProfile)}
+      RECENT CONVERSATION:
+      ${conversationHistoryText}
+      
+      Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
+
+      const command = new InvokeModelCommand({
+        modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      });
+
+      const response = await bedrockClient.send(command);
+      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+      const aiOutput = JSON.parse(responseBody.content[0].text);
+
+      // --- Handle AI's Decision to Start a Simulation ---
+      if (aiOutput.nextStage === 'conflict_simulation') {
+          const scenario = SCENARIO_BLUEPRINTS[Math.floor(Math.random() * SCENARIO_BLUEPRINTS.length)];
+          context.simulation = {
+              scenario,
+              decisionHistory: [],
+              isComplete: false,
+          };
+          return {
+              content: aiOutput.response, // AI's transition text
+              stage: 'conflict_simulation',
+              expectsInput: 'choice',
+              simulationData: {
+                openingScene: scenario.openingScene,
+                prompt: scenario.decisionPoints[0].prompt,
+                choices: scenario.decisionPoints[0].choices,
+              }
+          };
+      }
+
+      context.conversationHistory.push({ role: 'assistant', content: aiOutput.response });
+      
+      return {
+        content: aiOutput.response,
+        stage: aiOutput.nextStage,
+        expectsInput: 'text'
+      };
+
+    } catch (error) {
+      console.error('Bedrock API error:', error);
+      
+      // Provide detailed error message for AWS/Bedrock issues
+      const detailedError = getBedrockErrorMessage(error);
+      throw new Error(detailedError);
+    }
+  }
+
+  // --- FINAL ANALYSIS FUNCTION ---
+  async generatePersonalityAnalysis(
+    context: ConversationContext,
+    justCause: string = "To empower individuals and organizations to discover and live their purpose"
+  ): Promise<CandidatePersonaProfile> {
+    const conversationSummary = context.conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+
+    const analysisPrompt = `As Sensa, analyze the complete conversation transcript and simulation results to produce a comprehensive Candidate Persona Profile.
+
+    ORGANIZATION'S JUST CAUSE: "${justCause}"
+
+    CONVERSATION TRANSCRIPT:
+    ${conversationSummary}
+
+    SIMULATION RESULTS:
+    ${JSON.stringify(context.simulation, null, 2) || 'No simulation was run.'}
+
+    ---
+    INSTRUCTIONS:
+    Provide a detailed analysis in the following JSON format. Do not include any text outside of the JSON object.
+    - coherenceScore: Assess the consistency between the candidate's stated WHY, HOW, and WHAT.
+    - trustIndex: Based on their answers about accountability, failure, and vulnerability.
+    - dominantConflictStyle: Use the simulation data as the primary source for this.
+    - eqSnapshot: Provide a brief, descriptive analysis for each of the four domains.
+    - alignmentSummary: Critically evaluate how the candidate's personal WHY and values align with the organization's Just Cause.
+
+    {
+      "statedWhy": "Candidate's core purpose/belief, summarized in one sentence.",
+      "observedHow": ["List of key operational values, principles, or methods."],
+      "coherenceScore": "High|Medium|Low",
+      "trustIndex": "High-Trust Potential|Medium-Trust|Low-Trust/Red Flag",
+      "dominantConflictStyle": "Collaborate|Accommodate|Force|Avoid|Compromise|Undetermined",
+      "eqSnapshot": {
+        "selfAwareness": "Brief analysis of their self-awareness.",
+        "selfManagement": "Brief analysis of their ability to manage emotions and stress.",
+        "socialAwareness": "Brief analysis of their empathy and ability to read social cues.",
+        "relationshipManagement": "Brief analysis of their ability to manage relationships and conflict."
+      },
+      "keyQuotationsAndBehavioralFlags": {
+        "greenFlags": ["List of positive statements or behaviors."],
+        "redFlags": ["List of concerning statements or behaviors."]
+      },
+      "alignmentSummary": "A concluding analysis of how well the candidate's overall persona aligns with the organization's specific Just Cause."
+    }`;
+
+    try {
+      const command = new InvokeModelCommand({
+        modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 2000,
+          messages: [{ role: 'user', content: analysisPrompt }],
+          temperature: 0.3,
+        }),
+      });
+
+      const response = await bedrockClient.send(command);
+      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+      const content = responseBody.content[0].text;
+      
+      // Extract the JSON object from the response
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      throw new Error("Failed to parse JSON analysis from model response.");
+
+    } catch (error) {
+      console.error('Analysis generation error:', error);
+      
+      // Provide detailed error message for AWS/Bedrock issues
+      const detailedError = getBedrockErrorMessage(error);
+      throw new Error(detailedError);
+    }
+  }
+}
+
+// --- LEGACY FUNCTION EXPORTS FOR BACKWARD COMPATIBILITY ---
 
 export async function generateAIResponse(
   userMessage: string,
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<AIResponse> {
-  // --- Simulation Logic ---
-  // If we are currently in a simulation, handle the user's choice.
-  if (context.stage === 'conflict_simulation' && context.simulation && !context.simulation.isComplete) {
-      const chosenStyle = userMessage as ConflictStyle; // Assume frontend sends the style of the chosen option
-      context.simulation.decisionHistory.push(chosenStyle);
-      context.simulation.isComplete = true;
-
-      // Ask the AI for a concluding remark before moving on
-      const prompt = getSystemPrompt(justCause, true);
-      
-      try {
-        const command = new InvokeModelCommand({
-            modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
-            contentType: 'application/json',
-            accept: 'application/json',
-            body: JSON.stringify({
-              anthropic_version: 'bedrock-2023-05-31',
-              max_tokens: 200,
-              messages: [{ role: 'user', content: prompt }],
-            }),
-        });
-        const response = await bedrockClient.send(command);
-        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-        const aiOutput = JSON.parse(responseBody.content[0].text);
-
-        return {
-            content: aiOutput.response,
-            stage: aiOutput.nextStage, // AI transitions to the next stage
-            expectsInput: 'text'
-        };
-      } catch (error) {
-        console.error('Bedrock simulation error:', error);
-        // Fallback for simulation conclusion
-        return {
-          content: "Thank you for that response. I can see how you approach challenging situations. Let's continue exploring your professional values and experiences.",
-          stage: 'trust_assessment',
-          expectsInput: 'text'
-        };
-      }
-  }
-
-  // --- Standard Conversation Logic ---
-  try {
-    context.conversationHistory.push({ role: 'user', content: userMessage });
-    const conversationHistoryText = context.conversationHistory.slice(-10).map(msg => `${msg.role}: ${msg.content}`).join('\n');
-
-    const prompt = `${getSystemPrompt(justCause)}
-
-    CURRENT CONTEXT:
-    Stage: ${context.stage}
-    User Profile: ${JSON.stringify(context.userProfile)}
-    RECENT CONVERSATION:
-    ${conversationHistoryText}
-    
-    Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
-
-    const command = new InvokeModelCommand({
-      modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-      }),
-    });
-
-    const response = await bedrockClient.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const aiOutput = JSON.parse(responseBody.content[0].text);
-
-    // --- Handle AI's Decision to Start a Simulation ---
-    if (aiOutput.nextStage === 'conflict_simulation') {
-        const scenario = SCENARIO_BLUEPRINTS[Math.floor(Math.random() * SCENARIO_BLUEPRINTS.length)];
-        context.simulation = {
-            scenario,
-            decisionHistory: [],
-            isComplete: false,
-        };
-        return {
-            content: aiOutput.response, // AI's transition text
-            stage: 'conflict_simulation',
-            expectsInput: 'choice',
-            simulationData: {
-              openingScene: scenario.openingScene,
-              prompt: scenario.decisionPoints[0].prompt,
-              choices: scenario.decisionPoints[0].choices,
-            }
-        };
-    }
-
-    context.conversationHistory.push({ role: 'assistant', content: aiOutput.response });
-    
-    return {
-      content: aiOutput.response,
-      stage: aiOutput.nextStage,
-      expectsInput: 'text'
-    };
-
-  } catch (error) {
-    console.error('Bedrock API error:', error);
-    
-    // Provide detailed error message for AWS/Bedrock issues
-    const detailedError = getBedrockErrorMessage(error);
-    throw new Error(detailedError);
-  }
+  const service = new BedrockService();
+  return service.generateResponse(userMessage, context, justCause);
 }
-
-// --- FINAL ANALYSIS FUNCTION ---
 
 export async function generatePersonalityAnalysis(
   context: ConversationContext,
   justCause: string = "To empower individuals and organizations to discover and live their purpose"
 ): Promise<CandidatePersonaProfile> {
-  const conversationSummary = context.conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
-
-  const analysisPrompt = `As Sensa, analyze the complete conversation transcript and simulation results to produce a comprehensive Candidate Persona Profile.
-
-  ORGANIZATION'S JUST CAUSE: "${justCause}"
-
-  CONVERSATION TRANSCRIPT:
-  ${conversationSummary}
-
-  SIMULATION RESULTS:
-  ${JSON.stringify(context.simulation, null, 2) || 'No simulation was run.'}
-
-  ---
-  INSTRUCTIONS:
-  Provide a detailed analysis in the following JSON format. Do not include any text outside of the JSON object.
-  - coherenceScore: Assess the consistency between the candidate's stated WHY, HOW, and WHAT.
-  - trustIndex: Based on their answers about accountability, failure, and vulnerability.
-  - dominantConflictStyle: Use the simulation data as the primary source for this.
-  - eqSnapshot: Provide a brief, descriptive analysis for each of the four domains.
-  - alignmentSummary: Critically evaluate how the candidate's personal WHY and values align with the organization's Just Cause.
-
-  {
-    "statedWhy": "Candidate's core purpose/belief, summarized in one sentence.",
-    "observedHow": ["List of key operational values, principles, or methods."],
-    "coherenceScore": "High|Medium|Low",
-    "trustIndex": "High-Trust Potential|Medium-Trust|Low-Trust/Red Flag",
-    "dominantConflictStyle": "Collaborate|Accommodate|Force|Avoid|Compromise|Undetermined",
-    "eqSnapshot": {
-      "selfAwareness": "Brief analysis of their self-awareness.",
-      "selfManagement": "Brief analysis of their ability to manage emotions and stress.",
-      "socialAwareness": "Brief analysis of their empathy and ability to read social cues.",
-      "relationshipManagement": "Brief analysis of their ability to manage relationships and conflict."
-    },
-    "keyQuotationsAndBehavioralFlags": {
-      "greenFlags": ["List of positive statements or behaviors."],
-      "redFlags": ["List of concerning statements or behaviors."]
-    },
-    "alignmentSummary": "A concluding analysis of how well the candidate's overall persona aligns with the organization's specific Just Cause."
-  }`;
-
-  try {
-    const command = new InvokeModelCommand({
-      modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: analysisPrompt }],
-        temperature: 0.3,
-      }),
-    });
-
-    const response = await bedrockClient.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const content = responseBody.content[0].text;
-    
-    // Extract the JSON object from the response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    throw new Error("Failed to parse JSON analysis from model response.");
-
-  } catch (error) {
-    console.error('Analysis generation error:', error);
-    
-    // Provide detailed error message for AWS/Bedrock issues
-    const detailedError = getBedrockErrorMessage(error);
-    throw new Error(detailedError);
-  }
+  const service = new BedrockService();
+  return service.generatePersonalityAnalysis(context, justCause);
 }
