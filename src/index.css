@@ -1,0 +1,123 @@
+@import url('../../ReelApps/src/styles/globals.css');
+
+/* Additional animations for ReelPersona */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Enhanced background for gradient experience */
+.gradient-background {
+  background: var(--gradient-hero) !important;
+  background-attachment: fixed !important;
+}
+
+/* Enhanced glassmorphism effects */
+.glass-effect {
+  background: var(--gradient-glass);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* --- ReelPersona layout helpers (retain Ascension palette) --- */
+html, body, #root {
+  height: 100%;
+}
+
+.app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.app-header,
+.app-footer {
+  flex-shrink: 0;
+}
+
+.app-main {
+  flex: 1 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem 1rem;
+}
+
+/* Header and footer styling */
+.app-header {
+  background: var(--gradient-primary);
+  color: var(--text-primary);
+  padding: 1.5rem 0;
+  width: 100%;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+.app-footer {
+  background: var(--gradient-primary);
+  color: var(--text-primary);
+  padding: 1.5rem 0;
+  width: 100%;
+  margin-top: auto;
+  box-shadow: 0 -1px 2px rgb(0 0 0 / 0.05);
+}
+
+.footer-link {
+  color: var(--text-primary);
+  text-decoration: none;
+  margin: 0 0.5rem;
+  font-weight: 500;
+}
+
+.footer-link:hover {
+  opacity: 0.8;
+}
+
+/* Header inner layout */
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-content h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-inverse);
+}
+
+.nav-links {
+  display: flex;
+  gap: 1rem;
+}
+
+.nav-links a {
+  color: var(--text-inverse);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.nav-links a:hover {
+  opacity: 0.8;
+}
+
+/* Footer layout */
+.footer-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+  text-align: center;
+}
+
+.footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
