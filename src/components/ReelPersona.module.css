@@ -19,6 +19,8 @@
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-muted: #64748b;
+  --simulation-bg: #0f172a;
+  --simulation-border: #1e40af;
 }
 
 .reelPersona {
@@ -624,6 +626,82 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Simulation Styles */
+.simulationContainer {
+  background: var(--simulation-bg);
+  border: 2px solid var(--simulation-border);
+  border-radius: var(--component-radius);
+  padding: var(--spacing-lg);
+  margin-top: var(--spacing-md);
+  max-width: 90%;
+}
+
+.simulationHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  color: var(--accent-blue);
+}
+
+.simulationHeader h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.simulationScene {
+  background: var(--card-background-hover);
+  padding: var(--spacing-md);
+  border-radius: var(--component-radius);
+  margin-bottom: var(--spacing-lg);
+}
+
+.simulationScene p {
+  margin: 0 0 var(--spacing-sm) 0;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.simulationChoices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.simulationChoice {
+  padding: var(--spacing-md);
+  background: var(--card-background);
+  border: 1px solid var(--card-border);
+  border-radius: var(--component-radius);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.simulationChoice:hover {
+  background: var(--card-background-hover);
+  border-color: var(--accent-blue);
+  transform: translateY(-1px);
+}
+
+.choiceText {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.choiceStyle {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-left: var(--spacing-md);
+}
+
 /* Message Actions */
 .messageActions {
   display: flex;
@@ -941,8 +1019,9 @@
 
 .traitLabel {
   font-size: 14px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-weight: 500;
+  line-height: 1.4;
 }
 
 .summarySection {
@@ -964,7 +1043,11 @@
   line-height: 1.6;
   color: var(--text-secondary);
   font-size: 16px;
-  margin: 0;
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.summarySection p:last-child {
+  margin-bottom: 0;
 }
 
 .insightsSection {
@@ -1255,6 +1338,10 @@
   .welcome h1 {
     font-size: 28px;
   }
+
+  .simulationContainer {
+    max-width: 95%;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1280,6 +1367,16 @@
   .voiceSettingsPanel {
     max-width: 95vw;
     padding: var(--spacing-md);
+  }
+
+  .simulationChoices {
+    gap: var(--spacing-xs);
+  }
+
+  .simulationChoice {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
   }
 }
 

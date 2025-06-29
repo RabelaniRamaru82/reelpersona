@@ -22,9 +22,17 @@ import {
   Pause,
   Play,
   Sparkles,
-  Settings
+  Settings,
+  AlertTriangle
 } from 'lucide-react';
-import { generateAIResponse, generatePersonalityAnalysis, type ConversationContext, type PersonalityAnalysis } from '../lib/bedrock';
+import { 
+  generateAIResponse, 
+  generatePersonalityAnalysis, 
+  type ConversationContext, 
+  type CandidatePersonaProfile,
+  type AIResponse 
+} from '../lib/bedrock.service';
+import { type ConflictStyle } from '../lib/simulation';
 import styles from './ReelPersona.module.css';
 
 // Types
@@ -35,8 +43,13 @@ interface ChatMessage {
   timestamp: Date;
   isPlaying?: boolean;
   options?: string[];
-  expectsInput?: 'text' | 'choice' | 'name' | 'role' | 'company';
+  expectsInput?: 'text' | 'choice';
   metadata?: any;
+  simulationData?: {
+    openingScene: string;
+    prompt: string;
+    choices: { text: string; style: ConflictStyle }[];
+  };
 }
 
 interface UserProfile {
@@ -106,11 +119,14 @@ const ReelPersona: React.FC = () => {
   });
   const [conversationContext, setConversationContext] = useState<ConversationContext>({
     stage: 'intro',
-    userProfile: {},
+    userProfile: {
+      answers: {}
+    },
     conversationHistory: []
   });
-  const [results, setResults] = useState<PersonalityAnalysis | null>(null);
+  const [results, setResults] = useState<CandidatePersonaProfile | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [justCause, setJustCause] = useState("To empower individuals and organizations to discover and live their purpose");
   
   // Voice-related state
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
@@ -276,7 +292,7 @@ const ReelPersona: React.FC = () => {
 
   const testVoice = (voice: SpeechSynthesisVoice) => {
     speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance("Hello! This is how I sound. I'm Dr. Sarah Chen, your AI personality analyst.");
+    const utterance = new SpeechSynthesisUtterance("Hello! This is how I sound. I'm Dr. Sarah Chen, your AI personality analyst, and I'm excited to explore your professional motivations with you.");
     utterance.voice = voice;
     utterance.rate = voiceSettings.rate;
     utterance.pitch = voiceSettings.pitch;
@@ -285,7 +301,7 @@ const ReelPersona: React.FC = () => {
   };
 
   // Conversation management
-  const addMessage = (content: string, type: 'user' | 'ai' | 'system', options?: string[], expectsInput?: any, metadata?: any) => {
+  const addMessage = (content: string, type: 'user' | 'ai' | 'system', options?: string[], expectsInput?: any, metadata?: any, simulationData?: any) => {
     const message: ChatMessage = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       type,
@@ -293,7 +309,8 @@ const ReelPersona: React.FC = () => {
       timestamp: new Date(),
       options,
       expectsInput,
-      metadata
+      metadata,
+      simulationData
     };
 
     setChatMessages(prev => [...prev, message]);
@@ -308,7 +325,7 @@ const ReelPersona: React.FC = () => {
 
   const startConversation = () => {
     addMessage(
-      "Hello! I'm Dr. Sarah Chen, your AI personality analyst. I'm here to help you discover deep insights about your work style and professional motivations through natural conversation. This assessment uses the proven Golden Circle framework to understand your WHY (purpose), HOW (values), and WHAT (skills). Shall we begin?",
+      "Hello! I'm Dr. Sarah Chen, your AI personality analyst. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. This assessment will uncover your WHY (purpose), HOW (values), and WHAT (skills) through natural conversation. We may also explore how you handle workplace challenges through realistic scenarios. Shall we begin this journey of discovery?",
       'ai',
       ['Yes, let\'s start!', 'Tell me more about the process first']
     );
@@ -319,7 +336,7 @@ const ReelPersona: React.FC = () => {
     }));
   };
 
-  const processUserInput = async (input: string, isChoice: boolean = false, choiceIndex?: number) => {
+  const processUserInput = async (input: string, isChoice: boolean = false, choiceIndex?: number, conflictStyle?: ConflictStyle) => {
     // Add user message
     addMessage(input, 'user');
 
@@ -332,21 +349,36 @@ const ReelPersona: React.FC = () => {
     setIsTyping(true);
 
     try {
+      // For simulation choices, pass the conflict style
+      const inputToProcess = conflictStyle || input;
+      
       // Generate AI response using Bedrock
-      const aiResponse = await generateAIResponse(input, {
+      const aiResponse = await generateAIResponse(inputToProcess, {
         ...conversationContext,
         conversationHistory: newHistory
-      });
+      }, justCause);
 
       setIsTyping(false);
 
-      // Add AI response
-      const aiMessage = addMessage(
-        aiResponse.content,
-        'ai',
-        aiResponse.options,
-        aiResponse.expectsInput
-      );
+      // Handle simulation response
+      if (aiResponse.simulationData) {
+        addMessage(
+          aiResponse.content,
+          'ai',
+          undefined,
+          'choice',
+          undefined,
+          aiResponse.simulationData
+        );
+      } else {
+        // Add regular AI response
+        addMessage(
+          aiResponse.content,
+          'ai',
+          aiResponse.options,
+          aiResponse.expectsInput
+        );
+      }
 
       // Update conversation context
       const updatedHistory = [
@@ -360,18 +392,13 @@ const ReelPersona: React.FC = () => {
       if (conversationContext.stage === 'name') {
         updatedProfile.firstName = input;
         setUserProfile(prev => ({ ...prev, firstName: input }));
-      } else if (conversationContext.stage === 'role') {
-        updatedProfile.currentRole = input;
-        setUserProfile(prev => ({ ...prev, currentRole: input }));
-      } else if (conversationContext.stage === 'company') {
-        updatedProfile.company = input;
-        setUserProfile(prev => ({ ...prev, company: input }));
       }
 
       setConversationContext({
         stage: aiResponse.stage || conversationContext.stage,
         userProfile: updatedProfile,
-        conversationHistory: updatedHistory
+        conversationHistory: updatedHistory,
+        simulation: conversationContext.simulation
       });
 
       // Check if analysis is complete
@@ -397,19 +424,19 @@ const ReelPersona: React.FC = () => {
     setIsAnalyzing(true);
     
     addMessage(
-      "Thank you for this wonderful conversation! I'm now analyzing everything we've discussed to generate your comprehensive personality profile. This will take just a moment...",
+      "Thank you for this wonderful conversation! I'm now analyzing everything we've discussed to generate your comprehensive Candidate Persona Profile using the Golden Circle framework. This will take just a moment...",
       'system'
     );
 
     try {
-      const analysis = await generatePersonalityAnalysis(conversationContext);
+      const analysis = await generatePersonalityAnalysis(conversationContext, justCause);
       setResults(analysis);
       setCurrentStep('results');
 
       // Auto-speak results if enabled
       if (voiceSettings.enabled && voiceSettings.autoPlay) {
         setTimeout(() => {
-          speakText(`Your personality analysis is complete, ${userProfile.firstName}. ${analysis.summary}`);
+          speakText(`Your personality analysis is complete, ${userProfile.firstName}. ${analysis.alignmentSummary}`);
         }, 1000);
       }
     } catch (error) {
@@ -420,23 +447,23 @@ const ReelPersona: React.FC = () => {
       );
       
       // Fallback analysis
-      const fallbackAnalysis: PersonalityAnalysis = {
-        whyStatement: "Dedicated to making meaningful contributions through collaborative work",
-        howValues: ["Collaboration", "Integrity", "Continuous Learning"],
+      const fallbackAnalysis: CandidatePersonaProfile = {
+        statedWhy: "Dedicated to making meaningful contributions through collaborative work",
+        observedHow: ["Collaboration", "Integrity", "Continuous Learning"],
         coherenceScore: "Medium",
         trustIndex: "Medium-Trust",
-        conflictStyle: "Collaborative",
-        emotionalIntelligence: {
-          selfAwareness: 75,
-          selfManagement: 70,
-          socialAwareness: 80,
-          relationshipManagement: 75
+        dominantConflictStyle: "Collaborate",
+        eqSnapshot: {
+          selfAwareness: "Demonstrates good self-reflection and awareness of personal motivations",
+          selfManagement: "Shows ability to regulate emotions and adapt to changing circumstances",
+          socialAwareness: "Displays empathy and understanding of others' perspectives",
+          relationshipManagement: "Exhibits collaborative approach to working with others"
         },
-        strengths: ["Strong communication", "Team-oriented", "Growth mindset"],
-        growthAreas: ["Could benefit from more structured goal-setting"],
-        summary: `${userProfile.firstName} demonstrates strong collaborative instincts and genuine engagement in professional development conversations.`,
-        keyQuotations: ["Engaged thoughtfully throughout the assessment"],
-        alignmentSummary: "Shows good potential for team-based roles with proper development support."
+        keyQuotationsAndBehavioralFlags: {
+          greenFlags: ["Engaged thoughtfully throughout the assessment", "Showed genuine interest in self-discovery"],
+          redFlags: ["Limited data due to technical issues"]
+        },
+        alignmentSummary: `${userProfile.firstName} demonstrates strong collaborative instincts and genuine engagement in professional development conversations. Shows good potential for team-based roles with proper development support.`
       };
       
       setResults(fallbackAnalysis);
@@ -456,6 +483,10 @@ const ReelPersona: React.FC = () => {
 
   const handleOptionClick = (option: string, index: number) => {
     processUserInput(option, true, index);
+  };
+
+  const handleSimulationChoice = (choice: { text: string; style: ConflictStyle }, index: number) => {
+    processUserInput(choice.text, true, index, choice.style);
   };
 
   const handleVoiceInput = () => {
@@ -602,7 +633,7 @@ const ReelPersona: React.FC = () => {
           <p>
             Experience a revolutionary approach to personality assessment. Our AI analyst, Dr. Sarah Chen, 
             uses the proven Simon Sinek Golden Circle framework to uncover your deeper motivations through 
-            natural conversation.
+            natural conversation and realistic workplace scenarios.
           </p>
           <p>
             🎯 <strong>Purpose-Driven:</strong> Discover your professional WHY<br/>
@@ -628,10 +659,10 @@ const ReelPersona: React.FC = () => {
             </div>
           </div>
           <div className={styles.trustItem}>
-            <Volume2 size={24} />
+            <AlertTriangle size={24} />
             <div>
-              <h3>Natural Conversation</h3>
-              <p>AI-powered dialogue with professional voice interaction</p>
+              <h3>Conflict Simulation</h3>
+              <p>Test decision-making through realistic workplace scenarios</p>
             </div>
           </div>
           <div className={styles.trustItem}>
@@ -701,7 +732,8 @@ const ReelPersona: React.FC = () => {
                 )}
               </div>
               
-              {message.options && (
+              {/* Regular options */}
+              {message.options && !message.simulationData && (
                 <div className={styles.messageOptions}>
                   {message.options.map((option, index) => (
                     <button
@@ -712,6 +744,32 @@ const ReelPersona: React.FC = () => {
                       {option}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* Simulation scenario */}
+              {message.simulationData && (
+                <div className={styles.simulationContainer}>
+                  <div className={styles.simulationHeader}>
+                    <AlertTriangle size={20} />
+                    <h4>Workplace Scenario</h4>
+                  </div>
+                  <div className={styles.simulationScene}>
+                    <p><strong>Situation:</strong> {message.simulationData.openingScene}</p>
+                    <p><strong>{message.simulationData.prompt}</strong></p>
+                  </div>
+                  <div className={styles.simulationChoices}>
+                    {message.simulationData.choices.map((choice, index) => (
+                      <button
+                        key={index}
+                        className={styles.simulationChoice}
+                        onClick={() => handleSimulationChoice(choice, index)}
+                      >
+                        <span className={styles.choiceText}>{choice.text}</span>
+                        <span className={styles.choiceStyle}>({choice.style})</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -769,22 +827,15 @@ const ReelPersona: React.FC = () => {
   const renderResults = () => {
     if (!results) return null;
 
-    const traits = [
-      { name: 'Self-Awareness', score: results.emotionalIntelligence.selfAwareness, description: 'Understanding your emotions and motivations' },
-      { name: 'Self-Management', score: results.emotionalIntelligence.selfManagement, description: 'Regulating emotions and adapting to change' },
-      { name: 'Social Awareness', score: results.emotionalIntelligence.socialAwareness, description: 'Reading others and understanding group dynamics' },
-      { name: 'Relationship Management', score: results.emotionalIntelligence.relationshipManagement, description: 'Influencing and managing relationships effectively' }
-    ];
-
     return (
       <div className={styles.results}>
         <div className={styles.resultsContent}>
           <div className={styles.resultsHeader}>
-            <h2>Your Professional Personality Analysis</h2>
+            <h2>Candidate Persona Profile</h2>
             {voiceSettings.enabled && (
               <button
                 className={styles.speakResultsButton}
-                onClick={() => speakText(`Here's your comprehensive personality analysis. ${results.summary}`)}
+                onClick={() => speakText(`Here's your comprehensive personality analysis. ${results.alignmentSummary}`)}
                 disabled={isSpeaking}
                 title="Listen to results summary"
               >
@@ -803,63 +854,68 @@ const ReelPersona: React.FC = () => {
           </div>
 
           <div className={styles.summarySection}>
-            <h3>Executive Summary</h3>
-            <p>{results.summary}</p>
-          </div>
-
-          <div className={styles.insightsSection}>
-            <div className={styles.summarySection}>
-              <h3>Your Professional WHY</h3>
-              <p><strong>Core Purpose:</strong> {results.whyStatement}</p>
-              <p><strong>Key Values:</strong> {results.howValues.join(', ')}</p>
-              <p><strong>Coherence Score:</strong> {results.coherenceScore}</p>
-              <p><strong>Trust Index:</strong> {results.trustIndex}</p>
-            </div>
+            <h3>Core Purpose & Values</h3>
+            <p><strong>Stated WHY:</strong> {results.statedWhy}</p>
+            <p><strong>Observed HOW:</strong> {results.observedHow.join(', ')}</p>
+            <p><strong>Coherence Score:</strong> {results.coherenceScore}</p>
+            <p><strong>Trust Index:</strong> {results.trustIndex}</p>
+            <p><strong>Dominant Conflict Style:</strong> {results.dominantConflictStyle}</p>
           </div>
 
           <div className={styles.traitsSection}>
-            <h3>Emotional Intelligence Profile</h3>
+            <h3>Emotional Intelligence Assessment</h3>
             <div className={styles.traits}>
-              {traits.map((trait) => (
-                <div key={trait.name} className={styles.trait}>
-                  <div className={styles.traitHeader}>
-                    <span className={styles.traitName}>{trait.name}</span>
-                    <span className={styles.traitScore}>{Math.round(trait.score)}%</span>
-                  </div>
-                  <div className={styles.traitBar}>
-                    <div 
-                      className={styles.traitFill} 
-                      style={{ width: `${trait.score}%` }}
-                    />
-                  </div>
-                  <div className={styles.traitLabel}>{trait.description}</div>
+              <div className={styles.trait}>
+                <div className={styles.traitHeader}>
+                  <span className={styles.traitName}>Self-Awareness</span>
                 </div>
-              ))}
+                <div className={styles.traitLabel}>{results.eqSnapshot.selfAwareness}</div>
+              </div>
+              <div className={styles.trait}>
+                <div className={styles.traitHeader}>
+                  <span className={styles.traitName}>Self-Management</span>
+                </div>
+                <div className={styles.traitLabel}>{results.eqSnapshot.selfManagement}</div>
+              </div>
+              <div className={styles.trait}>
+                <div className={styles.traitHeader}>
+                  <span className={styles.traitName}>Social Awareness</span>
+                </div>
+                <div className={styles.traitLabel}>{results.eqSnapshot.socialAwareness}</div>
+              </div>
+              <div className={styles.trait}>
+                <div className={styles.traitHeader}>
+                  <span className={styles.traitName}>Relationship Management</span>
+                </div>
+                <div className={styles.traitLabel}>{results.eqSnapshot.relationshipManagement}</div>
+              </div>
             </div>
           </div>
 
           <div className={styles.insightsSection}>
             <div className={styles.strengths}>
-              <h3><TrendingUp size={20} />Key Strengths</h3>
+              <h3><TrendingUp size={20} />Green Flags</h3>
               <ul>
-                {results.strengths.map((strength, index) => (
-                  <li key={index}>{strength}</li>
+                {results.keyQuotationsAndBehavioralFlags.greenFlags.map((flag, index) => (
+                  <li key={index}>{flag}</li>
                 ))}
               </ul>
             </div>
 
-            <div className={styles.growthAreas}>
-              <h3><Target size={20} />Development Opportunities</h3>
-              <ul>
-                {results.growthAreas.map((area, index) => (
-                  <li key={index}>{area}</li>
-                ))}
-              </ul>
-            </div>
+            {results.keyQuotationsAndBehavioralFlags.redFlags.length > 0 && (
+              <div className={styles.growthAreas}>
+                <h3><Target size={20} />Red Flags</h3>
+                <ul>
+                  {results.keyQuotationsAndBehavioralFlags.redFlags.map((flag, index) => (
+                    <li key={index}>{flag}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           <div className={styles.integrationSection}>
-            <h3><Award size={24} />Professional Integration</h3>
+            <h3><Award size={24} />Organizational Alignment</h3>
             <p>{results.alignmentSummary}</p>
             
             <div className={styles.actionButtons}>
@@ -876,8 +932,8 @@ const ReelPersona: React.FC = () => {
             </div>
 
             <div className={styles.integrationNote}>
-              <p><strong>Assessment Framework:</strong> This analysis uses Simon Sinek's Golden Circle methodology combined with emotional intelligence assessment.</p>
-              <p><strong>Conflict Style:</strong> {results.conflictStyle} - Your primary approach to workplace challenges and team dynamics.</p>
+              <p><strong>Assessment Framework:</strong> This analysis uses Simon Sinek's Golden Circle methodology combined with conflict simulation and emotional intelligence assessment.</p>
+              <p><strong>Just Cause Alignment:</strong> Evaluated against the organization's purpose: "{justCause}"</p>
             </div>
           </div>
         </div>
