@@ -11,6 +11,12 @@ if (!VITE_AWS_REGION || !VITE_AWS_ACCESS_KEY_ID || !VITE_AWS_SECRET_ACCESS_KEY) 
   throw new Error("Missing required AWS environment variables for Bedrock client.");
 }
 
+// Check for placeholder values that indicate invalid credentials
+if (VITE_AWS_ACCESS_KEY_ID === 'YOUR_VALID_ACCESS_KEY_ID_HERE' || 
+    VITE_AWS_SECRET_ACCESS_KEY === 'YOUR_VALID_SECRET_ACCESS_KEY_HERE') {
+  throw new Error("Please replace the placeholder AWS credentials in your .env file with valid AWS credentials.");
+}
+
 const bedrockClient = new BedrockRuntimeClient({
   region: VITE_AWS_REGION,
   credentials: {
@@ -231,7 +237,13 @@ export async function generateAIResponse(
 
   } catch (error) {
     console.error('Bedrock API error:', error);
-    // Provide a more graceful failure response
+    
+    // Provide more specific error handling for authentication issues
+    if (error instanceof Error && error.message.includes('security token')) {
+      throw new Error('AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.');
+    }
+    
+    // Provide a more graceful failure response for other errors
     return {
       content: "I seem to be having a technical issue. I apologize. Let's try to continue. Could you please tell me more about a time you felt truly fulfilled in your work?",
       expectsInput: 'text',
@@ -312,6 +324,11 @@ export async function generatePersonalityAnalysis(
 
   } catch (error) {
     console.error('Analysis generation error:', error);
+    
+    if (error instanceof Error && error.message.includes('security token')) {
+      throw new Error('AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.');
+    }
+    
     throw new Error("The AI was unable to generate a final analysis profile.");
   }
 }
