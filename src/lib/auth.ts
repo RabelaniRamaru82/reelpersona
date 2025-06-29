@@ -15,11 +15,6 @@ export const getSupabaseClient = () => {
   return supabaseClient;
 };
 
-export const handleSupabaseError = (error: any, context: string) => {
-  console.error(`[${context}] Supabase error:`, error);
-  throw new Error(`${context} failed: ${error.message}`);
-};
-
 interface User {
   id: string;
   email?: string;
