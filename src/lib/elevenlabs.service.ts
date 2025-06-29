@@ -48,14 +48,14 @@ class ElevenLabsService {
   getRecommendedVoicesForSensa(): { voice_id: string; name: string; description: string }[] {
     return [
       {
-        voice_id: 'EXAVITQu4vr4xnSDxMaL', // Bella - warm, engaging
-        name: 'Bella',
-        description: 'Warm and engaging, perfect for professional conversations'
-      },
-      {
         voice_id: 'ErXwobaYiN019PkySvjV', // Antoni - deep, calming
         name: 'Antoni',
         description: 'Deep, calming voice ideal for thoughtful discussions'
+      },
+      {
+        voice_id: 'EXAVITQu4vr4xnSDxMaL', // Bella - warm, engaging
+        name: 'Bella',
+        description: 'Warm and engaging, perfect for professional conversations'
       },
       {
         voice_id: 'VR6AewLTigWG4xSOukaG', // Arnold - authoritative, warm
@@ -71,6 +71,11 @@ class ElevenLabsService {
         voice_id: 'onwK4e9ZLuTAKqWW03F9', // Daniel - calm, reassuring
         name: 'Daniel',
         description: 'Calm and reassuring, excellent for creating safe spaces'
+      },
+      {
+        voice_id: 'IKne3meq5aSn9XLyUdCD', // Charlie - professional, clear
+        name: 'Charlie',
+        description: 'Professional and clear, ideal for business conversations'
       }
     ];
   }
@@ -125,8 +130,8 @@ class ElevenLabsService {
       .trim();
   }
 
-  // Play audio from ArrayBuffer
-  async playAudio(audioBuffer: ArrayBuffer): Promise<void> {
+  // Play audio from ArrayBuffer with speed and volume control
+  async playAudio(audioBuffer: ArrayBuffer, speed: number = 1.0, volume: number = 1.0): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         // Stop any currently playing audio
@@ -136,6 +141,8 @@ class ElevenLabsService {
         const audioUrl = URL.createObjectURL(blob);
         
         this.currentAudio = new Audio(audioUrl);
+        this.currentAudio.playbackRate = speed;
+        this.currentAudio.volume = Math.max(0, Math.min(1, volume));
         
         this.currentAudio.onended = () => {
           URL.revokeObjectURL(audioUrl);

@@ -25,7 +25,9 @@ import {
   Settings,
   AlertTriangle,
   Loader,
-  MicIcon
+  MicIcon,
+  X,
+  TestTube
 } from 'lucide-react';
 import { 
   generateAIResponse, 
@@ -86,6 +88,8 @@ interface VoiceSettings {
   style: number;
   useSpeakerBoost: boolean;
   wakeWordEnabled: boolean;
+  voiceSpeed: number;
+  voiceVolume: number;
 }
 
 const ReelPersona: React.FC = () => {
@@ -125,7 +129,9 @@ const ReelPersona: React.FC = () => {
     similarityBoost: 0.75,
     style: 0.5,
     useSpeakerBoost: true,
-    wakeWordEnabled: true
+    wakeWordEnabled: true,
+    voiceSpeed: 1.0,
+    voiceVolume: 0.8
   });
   const [availableVoices, setAvailableVoices] = useState<ElevenLabsVoice[]>([]);
   const [isVoiceLoading, setIsVoiceLoading] = useState(false);
@@ -134,6 +140,7 @@ const ReelPersona: React.FC = () => {
   const [elevenLabsInitialized, setElevenLabsInitialized] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [wakeWordStatus, setWakeWordStatus] = useState<string>('');
+  const [isTestingVoice, setIsTestingVoice] = useState(false);
   
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const pendingSpeechRef = useRef<string>('');
@@ -280,7 +287,7 @@ const ReelPersona: React.FC = () => {
       const audioBuffer = await service.generateSpeech(text, voiceSettings.voiceId, elevenLabsSettings);
       setIsVoiceLoading(false);
       
-      await service.playAudio(audioBuffer);
+      await service.playAudio(audioBuffer, voiceSettings.voiceSpeed, voiceSettings.voiceVolume);
       
       setIsSpeaking(false);
       setChatMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
@@ -335,11 +342,11 @@ const ReelPersona: React.FC = () => {
     setVoiceSettings(prev => ({ ...prev, ...updates }));
   };
 
-  const testVoice = async (voiceId: string) => {
+  const testVoice = async (voiceId?: string) => {
     if (!elevenLabsInitialized) return;
     
     try {
-      setIsVoiceLoading(true);
+      setIsTestingVoice(true);
       const service = getElevenLabsService();
       
       const elevenLabsSettings: ElevenLabsVoiceSettings = {
@@ -349,11 +356,18 @@ const ReelPersona: React.FC = () => {
         use_speaker_boost: voiceSettings.useSpeakerBoost
       };
       
-      await service.testVoice(voiceId, elevenLabsSettings);
-      setIsVoiceLoading(false);
+      const testMessage = "Hello. I'm Sensa, your AI personality analyst. This is how my voice sounds with the current settings.";
+      const audioBuffer = await service.generateSpeech(
+        testMessage, 
+        voiceId || voiceSettings.voiceId, 
+        elevenLabsSettings
+      );
+      
+      await service.playAudio(audioBuffer, voiceSettings.voiceSpeed, voiceSettings.voiceVolume);
+      setIsTestingVoice(false);
     } catch (error) {
       console.error('Error testing voice:', error);
-      setIsVoiceLoading(false);
+      setIsTestingVoice(false);
       setVoiceError('Failed to test voice. Please try again.');
     }
   };
@@ -610,12 +624,12 @@ const ReelPersona: React.FC = () => {
       {showVoiceSettings && voiceSettings.enabled && elevenLabsInitialized && (
         <div className={styles.voiceSettingsPanel}>
           <div className={styles.voiceSettingsHeader}>
-            <h4>Sensa's Voice & Wake Word</h4>
+            <h4>Sensa's Voice & Wake Word Settings</h4>
             <button 
               className={styles.closeSettings}
               onClick={() => setShowVoiceSettings(false)}
             >
-              ×
+              <X size={18} />
             </button>
           </div>
           
@@ -655,52 +669,94 @@ const ReelPersona: React.FC = () => {
                 ))}
               </optgroup>
             </select>
-            <button
-              className={styles.testVoiceButton}
-              onClick={() => testVoice(voiceSettings.voiceId)}
-              disabled={isVoiceLoading || isSpeaking}
-            >
-              {isVoiceLoading ? <Loader size={12} className="animate-spin" /> : 'Test Voice'}
-            </button>
+            <div className={styles.voiceTestButtons}>
+              <button
+                className={styles.testVoiceButton}
+                onClick={() => testVoice()}
+                disabled={isTestingVoice || isSpeaking}
+              >
+                {isTestingVoice ? <Loader size={12} className="animate-spin" /> : <TestTube size={12} />}
+                {isTestingVoice ? 'Testing...' : 'Test Voice'}
+              </button>
+            </div>
           </div>
           
           <div className={styles.voiceOption}>
-            <label>Stability: {voiceSettings.stability.toFixed(2)}</label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={voiceSettings.stability}
-              onChange={(e) => updateVoiceSettings({ stability: parseFloat(e.target.value) })}
-              className={styles.voiceSlider}
-            />
+            <label>Voice Quality & Style</label>
+            
+            <div className={styles.sliderGroup}>
+              <label>Stability: {voiceSettings.stability.toFixed(2)}</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={voiceSettings.stability}
+                onChange={(e) => updateVoiceSettings({ stability: parseFloat(e.target.value) })}
+                className={styles.voiceSlider}
+              />
+              <span className={styles.sliderHelp}>Higher = more consistent, Lower = more expressive</span>
+            </div>
+            
+            <div className={styles.sliderGroup}>
+              <label>Similarity Boost: {voiceSettings.similarityBoost.toFixed(2)}</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={voiceSettings.similarityBoost}
+                onChange={(e) => updateVoiceSettings({ similarityBoost: parseFloat(e.target.value) })}
+                className={styles.voiceSlider}
+              />
+              <span className={styles.sliderHelp}>Higher = more like original voice</span>
+            </div>
+            
+            <div className={styles.sliderGroup}>
+              <label>Style: {voiceSettings.style.toFixed(2)}</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={voiceSettings.style}
+                onChange={(e) => updateVoiceSettings({ style: parseFloat(e.target.value) })}
+                className={styles.voiceSlider}
+              />
+              <span className={styles.sliderHelp}>Higher = more stylized and expressive</span>
+            </div>
           </div>
           
           <div className={styles.voiceOption}>
-            <label>Similarity Boost: {voiceSettings.similarityBoost.toFixed(2)}</label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={voiceSettings.similarityBoost}
-              onChange={(e) => updateVoiceSettings({ similarityBoost: parseFloat(e.target.value) })}
-              className={styles.voiceSlider}
-            />
-          </div>
-          
-          <div className={styles.voiceOption}>
-            <label>Style: {voiceSettings.style.toFixed(2)}</label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={voiceSettings.style}
-              onChange={(e) => updateVoiceSettings({ style: parseFloat(e.target.value) })}
-              className={styles.voiceSlider}
-            />
+            <label>Playback Settings</label>
+            
+            <div className={styles.sliderGroup}>
+              <label>Speed: {voiceSettings.voiceSpeed.toFixed(1)}x</label>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.1"
+                value={voiceSettings.voiceSpeed}
+                onChange={(e) => updateVoiceSettings({ voiceSpeed: parseFloat(e.target.value) })}
+                className={styles.voiceSlider}
+              />
+              <span className={styles.sliderHelp}>Adjust speaking speed</span>
+            </div>
+            
+            <div className={styles.sliderGroup}>
+              <label>Volume: {Math.round(voiceSettings.voiceVolume * 100)}%</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={voiceSettings.voiceVolume}
+                onChange={(e) => updateVoiceSettings({ voiceVolume: parseFloat(e.target.value) })}
+                className={styles.voiceSlider}
+              />
+              <span className={styles.sliderHelp}>Adjust voice volume</span>
+            </div>
           </div>
           
           <div className={styles.voiceOption}>
@@ -721,6 +777,7 @@ const ReelPersona: React.FC = () => {
               <li>🎯 Natural conversation flow</li>
               <li>🔊 Ultra-realistic AI voice</li>
               <li>⚡ Real-time speech recognition</li>
+              <li>🎛️ Full voice customization</li>
             </ul>
           </div>
         </div>
