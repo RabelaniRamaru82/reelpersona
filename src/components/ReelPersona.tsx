@@ -71,7 +71,7 @@ interface VoiceSettings {
   voice: SpeechSynthesisVoice | null;
 }
 
-// Enhanced voice quality scoring system
+// Enhanced voice quality scoring system with preference for deeper, calmer voices
 const getVoiceQuality = (voice: SpeechSynthesisVoice): number => {
   let score = 0;
   const name = voice.name.toLowerCase();
@@ -84,13 +84,13 @@ const getVoiceQuality = (voice: SpeechSynthesisVoice): number => {
   if (name.includes('neural') || name.includes('premium') || name.includes('enhanced')) score += 20;
   if (name.includes('natural') || name.includes('human')) score += 15;
   
-  // Platform-specific high-quality voices
-  if (name.includes('samantha') || name.includes('alex') || name.includes('victoria')) score += 15;
-  if (name.includes('zira') || name.includes('hazel') || name.includes('aria')) score += 12;
-  if (name.includes('siri') || name.includes('cortana')) score += 10;
+  // Prefer deeper, more calming voices for Sensa
+  if (name.includes('alex') || name.includes('daniel') || name.includes('david')) score += 18;
+  if (name.includes('samantha') || name.includes('victoria') || name.includes('aria')) score += 15;
+  if (name.includes('zira') || name.includes('hazel')) score += 12;
   
-  // Gender preference for professional context
-  if (name.includes('female') || name.includes('woman')) score += 8;
+  // Bonus for voices that sound professional and calming
+  if (name.includes('professional') || name.includes('calm') || name.includes('deep')) score += 15;
   
   // Avoid robotic/synthetic sounding voices
   if (name.includes('robot') || name.includes('synthetic') || name.includes('computer')) score -= 10;
@@ -128,12 +128,12 @@ const ReelPersona: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [justCause, setJustCause] = useState("To empower individuals and organizations to discover and live their purpose");
   
-  // Voice-related state
+  // Voice-related state - optimized for Sensa's deep, calming voice
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
     enabled: true,
     autoPlay: true,
-    rate: 0.85,
-    pitch: 1.0,
+    rate: 0.75, // Slower for more calming effect
+    pitch: 0.8, // Lower pitch for deeper voice
     voice: null
   });
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -170,14 +170,14 @@ const ReelPersona: React.FC = () => {
     }
   }, []);
 
-  // Enhanced speech synthesis initialization
+  // Enhanced speech synthesis initialization with preference for deeper voices
   useEffect(() => {
     if ('speechSynthesis' in window) {
       const loadVoices = () => {
         const voices = speechSynthesis.getVoices();
         setAvailableVoices(voices);
         
-        // Filter and rank voices by quality
+        // Filter and rank voices by quality, preferring deeper voices for Sensa
         const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
         const rankedVoices = englishVoices
           .map(voice => ({ voice, quality: getVoiceQuality(voice) }))
@@ -186,7 +186,7 @@ const ReelPersona: React.FC = () => {
         
         setQualityVoices(rankedVoices);
         
-        // Select the best available voice
+        // Select the best available voice for Sensa's calming persona
         const bestVoice = rankedVoices[0];
         
         if (bestVoice && !voiceSettings.voice) {
@@ -218,7 +218,7 @@ const ReelPersona: React.FC = () => {
     }
   }, [currentStep]);
 
-  // Enhanced voice synthesis functions
+  // Enhanced voice synthesis functions optimized for Sensa's calming delivery
   const speakText = (text: string, messageId?: string) => {
     if (!voiceSettings.enabled || !('speechSynthesis' in window)) return;
 
@@ -235,6 +235,7 @@ const ReelPersona: React.FC = () => {
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     
+    // Optimized settings for Sensa's deep, calming voice
     utterance.rate = voiceSettings.rate;
     utterance.pitch = voiceSettings.pitch;
     utterance.volume = 0.9;
@@ -292,7 +293,7 @@ const ReelPersona: React.FC = () => {
 
   const testVoice = (voice: SpeechSynthesisVoice) => {
     speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance("Hello! This is how I sound. I'm Dr. Sarah Chen, your AI personality analyst, and I'm excited to explore your professional motivations with you.");
+    const utterance = new SpeechSynthesisUtterance("Hello. I'm Sensa, your AI personality analyst. My voice is designed to be calming and professional as we explore your deeper motivations together.");
     utterance.voice = voice;
     utterance.rate = voiceSettings.rate;
     utterance.pitch = voiceSettings.pitch;
@@ -315,7 +316,7 @@ const ReelPersona: React.FC = () => {
 
     setChatMessages(prev => [...prev, message]);
 
-    // Auto-speak AI messages
+    // Auto-speak AI messages with Sensa's calming voice
     if (type === 'ai' && voiceSettings.enabled && voiceSettings.autoPlay) {
       setTimeout(() => speakText(content, message.id), 300);
     }
@@ -325,9 +326,9 @@ const ReelPersona: React.FC = () => {
 
   const startConversation = () => {
     addMessage(
-      "Hello! I'm Dr. Sarah Chen, your AI personality analyst. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. This assessment will uncover your WHY (purpose), HOW (values), and WHAT (skills) through natural conversation. We may also explore how you handle workplace challenges through realistic scenarios. Shall we begin this journey of discovery?",
+      "Hello. I'm Sensa, your AI personality analyst. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. Through our conversation, I'll uncover your WHY, your HOW, and your WHAT, creating a comprehensive understanding of your professional persona. We may also explore how you handle workplace challenges through realistic scenarios. Take a moment to get comfortable, and when you're ready, shall we begin this journey of discovery?",
       'ai',
-      ['Yes, let\'s start!', 'Tell me more about the process first']
+      ['Yes, I\'m ready to begin', 'Tell me more about the process first']
     );
     
     setConversationContext(prev => ({
@@ -424,7 +425,7 @@ const ReelPersona: React.FC = () => {
     setIsAnalyzing(true);
     
     addMessage(
-      "Thank you for this wonderful conversation! I'm now analyzing everything we've discussed to generate your comprehensive Candidate Persona Profile using the Golden Circle framework. This will take just a moment...",
+      "Thank you for this wonderful conversation. I'm now analyzing everything we've discussed to generate your comprehensive Candidate Persona Profile using the Golden Circle framework. This analysis will take just a moment...",
       'system'
     );
 
@@ -433,7 +434,7 @@ const ReelPersona: React.FC = () => {
       setResults(analysis);
       setCurrentStep('results');
 
-      // Auto-speak results if enabled
+      // Auto-speak results with Sensa's calming voice
       if (voiceSettings.enabled && voiceSettings.autoPlay) {
         setTimeout(() => {
           speakText(`Your personality analysis is complete, ${userProfile.firstName}. ${analysis.alignmentSummary}`);
@@ -501,7 +502,7 @@ const ReelPersona: React.FC = () => {
       <button
         className={`${styles.voiceToggle} ${voiceSettings.enabled ? styles.enabled : styles.disabled}`}
         onClick={toggleVoice}
-        title={voiceSettings.enabled ? 'Disable AI voice' : 'Enable AI voice'}
+        title={voiceSettings.enabled ? 'Disable Sensa\'s voice' : 'Enable Sensa\'s voice'}
       >
         {voiceSettings.enabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
       </button>
@@ -529,7 +530,7 @@ const ReelPersona: React.FC = () => {
       {showVoiceSettings && voiceSettings.enabled && (
         <div className={styles.voiceSettingsPanel}>
           <div className={styles.voiceSettingsHeader}>
-            <h4>Voice Settings</h4>
+            <h4>Sensa's Voice Settings</h4>
             <button 
               className={styles.closeSettings}
               onClick={() => setShowVoiceSettings(false)}
@@ -549,7 +550,7 @@ const ReelPersona: React.FC = () => {
               }}
             >
               <option value="">Default Voice</option>
-              <optgroup label="🌟 Recommended (High Quality)">
+              <optgroup label="🎯 Recommended for Sensa (Deep & Calming)">
                 {qualityVoices.slice(0, 5).map(voice => (
                   <option key={voice.name} value={voice.name}>
                     {voice.name.split(' ')[0]} ({voice.lang})
@@ -572,7 +573,7 @@ const ReelPersona: React.FC = () => {
                 onClick={() => testVoice(voiceSettings.voice!)}
                 disabled={isSpeaking}
               >
-                Test Voice
+                Test Sensa's Voice
               </button>
             )}
           </div>
@@ -582,8 +583,8 @@ const ReelPersona: React.FC = () => {
             <input
               type="range"
               min="0.5"
-              max="2.0"
-              step="0.1"
+              max="1.5"
+              step="0.05"
               value={voiceSettings.rate}
               onChange={(e) => updateVoiceSettings({ rate: parseFloat(e.target.value) })}
               className={styles.voiceSlider}
@@ -591,12 +592,12 @@ const ReelPersona: React.FC = () => {
           </div>
           
           <div className={styles.voiceOption}>
-            <label>Voice Pitch: {voiceSettings.pitch.toFixed(1)}</label>
+            <label>Voice Depth: {voiceSettings.pitch.toFixed(1)}</label>
             <input
               type="range"
-              min="0.5"
-              max="2.0"
-              step="0.1"
+              min="0.6"
+              max="1.2"
+              step="0.05"
               value={voiceSettings.pitch}
               onChange={(e) => updateVoiceSettings({ pitch: parseFloat(e.target.value) })}
               className={styles.voiceSlider}
@@ -604,12 +605,12 @@ const ReelPersona: React.FC = () => {
           </div>
           
           <div className={styles.voiceQualityInfo}>
-            <p><strong>💡 Voice Quality Tips:</strong></p>
+            <p><strong>🎙️ Sensa's Voice Profile:</strong></p>
             <ul>
-              <li>🌟 Recommended voices are ranked by naturalness</li>
-              <li>🎯 Try different voices to find your preference</li>
-              <li>⚡ Slower speeds (0.8-0.9x) sound more natural</li>
-              <li>🔊 Neural/Premium voices offer the best quality</li>
+              <li>🎯 Optimized for deep, calming delivery</li>
+              <li>🧘 Slower pace for thoughtful reflection</li>
+              <li>🎵 Lower pitch for professional warmth</li>
+              <li>🔊 Neural voices provide the best experience</li>
             </ul>
           </div>
         </div>
@@ -624,22 +625,23 @@ const ReelPersona: React.FC = () => {
           <Sparkles size={48} />
         </div>
         <h1>Welcome to ReelPersona</h1>
-        <p className={styles.welcomeSubtitle}>Professional AI Personality Assessment</p>
+        <p className={styles.welcomeSubtitle}>Professional AI Personality Assessment with Sensa</p>
       </div>
 
       <div className={styles.welcomeContent}>
         <div className={styles.welcomeMessage}>
-          <h2>Discover Your Professional WHY</h2>
+          <h2>Discover Your Professional WHY with Sensa</h2>
           <p>
-            Experience a revolutionary approach to personality assessment. Our AI analyst, Dr. Sarah Chen, 
-            uses the proven Simon Sinek Golden Circle framework to uncover your deeper motivations through 
-            natural conversation and realistic workplace scenarios.
+            Meet Sensa, your AI personality analyst with a deep, calming voice designed to guide you 
+            through a transformative assessment experience. Using the proven Simon Sinek Golden Circle 
+            framework, Sensa will uncover your deeper motivations through natural conversation and 
+            realistic workplace scenarios.
           </p>
           <p>
             🎯 <strong>Purpose-Driven:</strong> Discover your professional WHY<br/>
             🤝 <strong>Trust-Focused:</strong> Assess collaboration and leadership potential<br/>
             🧠 <strong>Science-Based:</strong> Built on proven psychological frameworks<br/>
-            ⚡ <strong>Professional:</strong> 15-20 minutes for comprehensive insights
+            🎙️ <strong>Calming Voice:</strong> Sensa's deep, professional tone creates a comfortable environment
           </p>
         </div>
 
@@ -666,10 +668,10 @@ const ReelPersona: React.FC = () => {
             </div>
           </div>
           <div className={styles.trustItem}>
-            <Shield size={24} />
+            <Volume2 size={24} />
             <div>
-              <h3>Professional Grade</h3>
-              <p>Enterprise-level analysis for talent development</p>
+              <h3>Sensa's Calming Voice</h3>
+              <p>Deep, professional tone designed for thoughtful reflection</p>
             </div>
           </div>
         </div>
@@ -679,7 +681,7 @@ const ReelPersona: React.FC = () => {
           onClick={() => setCurrentStep('chat')}
         >
           <MessageCircle size={20} />
-          Begin Assessment
+          Begin Assessment with Sensa
         </button>
       </div>
     </div>
@@ -691,7 +693,7 @@ const ReelPersona: React.FC = () => {
         <div className={styles.chatHeader}>
           <div className={styles.chatHeaderContent}>
             <div className={styles.chatHeaderInfo}>
-              <h2><Brain size={24} />Dr. Sarah Chen - AI Personality Analyst</h2>
+              <h2><Brain size={24} />Sensa - AI Personality Analyst</h2>
               <p>Professional assessment using the Golden Circle framework</p>
             </div>
             {renderVoiceControls()}
@@ -714,7 +716,7 @@ const ReelPersona: React.FC = () => {
                       <button
                         className={styles.speechButton}
                         onClick={stopSpeech}
-                        title="Stop speaking"
+                        title="Stop Sensa's voice"
                       >
                         <Pause size={14} />
                       </button>
@@ -722,7 +724,7 @@ const ReelPersona: React.FC = () => {
                       <button
                         className={styles.speechButton}
                         onClick={() => speakText(message.content, message.id)}
-                        title="Speak this message"
+                        title="Hear Sensa speak this message"
                         disabled={isSpeaking}
                       >
                         <Play size={14} />
@@ -779,7 +781,7 @@ const ReelPersona: React.FC = () => {
             <div className={`${styles.chatMessage} ${styles.aiMessage}`}>
               <div className={`${styles.messageContent} ${styles.typingMessage}`}>
                 <div className={styles.messageText}>
-                  <p>{isAnalyzing ? 'Generating comprehensive analysis' : 'Dr. Chen is thinking'}</p>
+                  <p>{isAnalyzing ? 'Sensa is generating comprehensive analysis' : 'Sensa is thinking'}</p>
                 </div>
               </div>
             </div>
@@ -837,10 +839,10 @@ const ReelPersona: React.FC = () => {
                 className={styles.speakResultsButton}
                 onClick={() => speakText(`Here's your comprehensive personality analysis. ${results.alignmentSummary}`)}
                 disabled={isSpeaking}
-                title="Listen to results summary"
+                title="Listen to Sensa's results summary"
               >
                 {isSpeaking ? <Pause size={20} /> : <Volume2 size={20} />}
-                {isSpeaking ? 'Stop' : 'Listen to Summary'}
+                {isSpeaking ? 'Stop' : 'Listen to Sensa'}
               </button>
             )}
           </div>
@@ -849,7 +851,7 @@ const ReelPersona: React.FC = () => {
             <CheckCircle className={styles.saveStatusIcon} size={20} />
             <div className={styles.saveStatusText}>
               <strong>Analysis Complete!</strong>
-              <br />Professional personality assessment using the Golden Circle framework.
+              <br />Professional personality assessment by Sensa using the Golden Circle framework.
             </div>
           </div>
 
@@ -932,7 +934,7 @@ const ReelPersona: React.FC = () => {
             </div>
 
             <div className={styles.integrationNote}>
-              <p><strong>Assessment Framework:</strong> This analysis uses Simon Sinek's Golden Circle methodology combined with conflict simulation and emotional intelligence assessment.</p>
+              <p><strong>Assessment Framework:</strong> This analysis was conducted by Sensa using Simon Sinek's Golden Circle methodology combined with conflict simulation and emotional intelligence assessment.</p>
               <p><strong>Just Cause Alignment:</strong> Evaluated against the organization's purpose: "{justCause}"</p>
             </div>
           </div>
