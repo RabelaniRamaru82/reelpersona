@@ -27,7 +27,8 @@ import {
   Loader,
   MicIcon,
   X,
-  TestTube
+  TestTube,
+  Info
 } from 'lucide-react';
 import { 
   generateAIResponse, 
@@ -141,6 +142,8 @@ const ReelPersona: React.FC = () => {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [wakeWordStatus, setWakeWordStatus] = useState<string>('');
   const [isTestingVoice, setIsTestingVoice] = useState(false);
+  const [speechRecognitionSupported, setSpeechRecognitionSupported] = useState(true);
+  const [bedrockError, setBedrockError] = useState<string | null>(null);
   
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const pendingSpeechRef = useRef<string>('');
@@ -204,6 +207,7 @@ const ReelPersona: React.FC = () => {
         console.error('Wake word error:', error);
         setVoiceError(error);
         setWakeWordStatus('Voice recognition error');
+        setSpeechRecognitionSupported(false);
       },
       
       onSpeechResult: (transcript, isFinal) => {
@@ -252,14 +256,14 @@ const ReelPersona: React.FC = () => {
 
   // Start wake word detection when chat starts
   useEffect(() => {
-    if (currentStep === 'chat' && voiceSettings.wakeWordEnabled) {
+    if (currentStep === 'chat' && voiceSettings.wakeWordEnabled && speechRecognitionSupported) {
       const service = getWakeWordService();
-      if (service) {
+      if (service && service.isSpeechRecognitionSupported()) {
         service.startListening();
         setWakeWordStatus('Say "Hey Sensa" to start talking');
       }
     }
-  }, [currentStep, voiceSettings.wakeWordEnabled]);
+  }, [currentStep, voiceSettings.wakeWordEnabled, speechRecognitionSupported]);
 
   // ElevenLabs voice functions
   const speakText = async (text: string, messageId?: string) => {
@@ -323,13 +327,23 @@ const ReelPersona: React.FC = () => {
   };
 
   const toggleWakeWord = () => {
+    if (!speechRecognitionSupported) {
+      setVoiceError('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      return;
+    }
+
     setVoiceSettings(prev => ({ ...prev, wakeWordEnabled: !prev.wakeWordEnabled }));
     
     const service = getWakeWordService();
     if (service) {
       if (!voiceSettings.wakeWordEnabled) {
-        service.startListening();
-        setWakeWordStatus('Say "Hey Sensa" to start talking');
+        if (service.isSpeechRecognitionSupported()) {
+          service.startListening();
+          setWakeWordStatus('Say "Hey Sensa" to start talking');
+        } else {
+          setVoiceError('Speech recognition is not available in this browser.');
+          setSpeechRecognitionSupported(false);
+        }
       } else {
         service.stopListening();
         setWakeWordStatus('');
@@ -435,6 +449,7 @@ const ReelPersona: React.FC = () => {
     ];
 
     setIsTyping(true);
+    setBedrockError(null);
 
     try {
       // For simulation choices, pass the conflict style
@@ -499,12 +514,22 @@ const ReelPersona: React.FC = () => {
     } catch (error) {
       setIsTyping(false);
       console.error('Error processing input:', error);
-      addMessage(
-        "I apologize for the technical difficulty. Let me continue our conversation. Could you tell me more about what drives you in your professional life?",
-        'ai',
-        undefined,
-        'text'
-      );
+      
+      // Handle Bedrock-specific errors
+      if (error instanceof Error) {
+        setBedrockError(error.message);
+        addMessage(
+          "I'm experiencing a technical issue with my AI analysis system. This might be due to AWS configuration or model access permissions. Please check the error details below and try again.",
+          'system'
+        );
+      } else {
+        addMessage(
+          "I apologize for the technical difficulty. Let me continue our conversation. Could you tell me more about what drives you in your professional life?",
+          'ai',
+          undefined,
+          'text'
+        );
+      }
     }
   };
 
@@ -529,33 +554,42 @@ const ReelPersona: React.FC = () => {
       }
     } catch (error) {
       console.error('Error generating analysis:', error);
-      addMessage(
-        "I encountered an issue generating your full analysis, but I can provide some initial insights based on our conversation. Let me prepare a summary for you.",
-        'ai'
-      );
       
-      // Fallback analysis
-      const fallbackAnalysis: CandidatePersonaProfile = {
-        statedWhy: "Dedicated to making meaningful contributions through collaborative work",
-        observedHow: ["Collaboration", "Integrity", "Continuous Learning"],
-        coherenceScore: "Medium",
-        trustIndex: "Medium-Trust",
-        dominantConflictStyle: "Collaborate",
-        eqSnapshot: {
-          selfAwareness: "Demonstrates good self-reflection and awareness of personal motivations",
-          selfManagement: "Shows ability to regulate emotions and adapt to changing circumstances",
-          socialAwareness: "Displays empathy and understanding of others' perspectives",
-          relationshipManagement: "Exhibits collaborative approach to working with others"
-        },
-        keyQuotationsAndBehavioralFlags: {
-          greenFlags: ["Engaged thoughtfully throughout the assessment", "Showed genuine interest in self-discovery"],
-          redFlags: ["Limited data due to technical issues"]
-        },
-        alignmentSummary: `${userProfile.firstName} demonstrates strong collaborative instincts and genuine engagement in professional development conversations. Shows good potential for team-based roles with proper development support.`
-      };
-      
-      setResults(fallbackAnalysis);
-      setCurrentStep('results');
+      if (error instanceof Error) {
+        setBedrockError(error.message);
+        addMessage(
+          "I encountered an issue generating your full analysis due to AWS configuration problems. Please check the error details below.",
+          'system'
+        );
+      } else {
+        addMessage(
+          "I encountered an issue generating your full analysis, but I can provide some initial insights based on our conversation. Let me prepare a summary for you.",
+          'ai'
+        );
+        
+        // Fallback analysis
+        const fallbackAnalysis: CandidatePersonaProfile = {
+          statedWhy: "Dedicated to making meaningful contributions through collaborative work",
+          observedHow: ["Collaboration", "Integrity", "Continuous Learning"],
+          coherenceScore: "Medium",
+          trustIndex: "Medium-Trust",
+          dominantConflictStyle: "Collaborate",
+          eqSnapshot: {
+            selfAwareness: "Demonstrates good self-reflection and awareness of personal motivations",
+            selfManagement: "Shows ability to regulate emotions and adapt to changing circumstances",
+            socialAwareness: "Displays empathy and understanding of others' perspectives",
+            relationshipManagement: "Exhibits collaborative approach to working with others"
+          },
+          keyQuotationsAndBehavioralFlags: {
+            greenFlags: ["Engaged thoughtfully throughout the assessment", "Showed genuine interest in self-discovery"],
+            redFlags: ["Limited data due to technical issues"]
+          },
+          alignmentSummary: `${userProfile.firstName} demonstrates strong collaborative instincts and genuine engagement in professional development conversations. Shows good potential for team-based roles with proper development support.`
+        };
+        
+        setResults(fallbackAnalysis);
+        setCurrentStep('results');
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -601,6 +635,7 @@ const ReelPersona: React.FC = () => {
             className={`${styles.wakeWordToggle} ${voiceSettings.wakeWordEnabled ? styles.enabled : styles.disabled}`}
             onClick={toggleWakeWord}
             title={voiceSettings.wakeWordEnabled ? 'Disable "Hey Sensa"' : 'Enable "Hey Sensa"'}
+            disabled={!speechRecognitionSupported}
           >
             {voiceSettings.wakeWordEnabled ? 'Hey' : 'Off'}
           </button>
@@ -615,8 +650,8 @@ const ReelPersona: React.FC = () => {
         </>
       )}
       
-      {voiceError && (
-        <div className={styles.voiceError} title={voiceError}>
+      {(voiceError || !speechRecognitionSupported) && (
+        <div className={styles.voiceError} title={voiceError || 'Speech recognition not supported'}>
           <AlertTriangle size={16} />
         </div>
       )}
@@ -639,11 +674,15 @@ const ReelPersona: React.FC = () => {
                 type="checkbox"
                 checked={voiceSettings.wakeWordEnabled}
                 onChange={toggleWakeWord}
+                disabled={!speechRecognitionSupported}
               />
               Enable "Hey Sensa" wake word
             </label>
             <p className={styles.wakeWordHelp}>
-              Say "Hey Sensa" followed by your message to talk naturally
+              {speechRecognitionSupported 
+                ? 'Say "Hey Sensa" followed by your message to talk naturally'
+                : 'Speech recognition not supported in this browser. Use Chrome or Edge.'
+              }
             </p>
           </div>
           
@@ -842,10 +881,26 @@ const ReelPersona: React.FC = () => {
           </div>
         </div>
 
-        {voiceError && (
-          <div className={styles.voiceErrorMessage}>
-            <AlertTriangle size={20} />
-            <p>{voiceError}</p>
+        {(voiceError || bedrockError) && (
+          <div className={styles.errorMessages}>
+            {voiceError && (
+              <div className={styles.voiceErrorMessage}>
+                <AlertTriangle size={20} />
+                <div>
+                  <h4>Voice Recognition Issue</h4>
+                  <p>{voiceError}</p>
+                </div>
+              </div>
+            )}
+            {bedrockError && (
+              <div className={styles.bedrockErrorMessage}>
+                <AlertTriangle size={20} />
+                <div>
+                  <h4>AI Analysis System Issue</h4>
+                  <p>{bedrockError}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -868,7 +923,7 @@ const ReelPersona: React.FC = () => {
             <div className={styles.chatHeaderInfo}>
               <h2><Brain size={24} />Sensa - AI Personality Analyst</h2>
               <p>Say "Hey Sensa" to start talking naturally</p>
-              {wakeWordStatus && (
+              {wakeWordStatus && speechRecognitionSupported && (
                 <div className={styles.wakeWordStatus}>
                   <MicIcon size={16} className={isListening ? styles.listening : ''} />
                   <span>{wakeWordStatus}</span>
@@ -878,6 +933,16 @@ const ReelPersona: React.FC = () => {
             {renderVoiceControls()}
           </div>
         </div>
+
+        {bedrockError && (
+          <div className={styles.bedrockErrorBanner}>
+            <AlertTriangle size={20} />
+            <div>
+              <h4>AI Analysis System Error</h4>
+              <p>{bedrockError}</p>
+            </div>
+          </div>
+        )}
 
         <div className={styles.chatMessages} ref={chatMessagesRef}>
           {chatMessages.map((message) => (
@@ -998,7 +1063,7 @@ const ReelPersona: React.FC = () => {
             </button>
           </div>
           
-          {voiceSettings.wakeWordEnabled && (
+          {voiceSettings.wakeWordEnabled && speechRecognitionSupported && (
             <div className={styles.voiceHint}>
               <MicIcon size={16} className={isListening ? styles.listening : ''} />
               <span>Say "Hey Sensa" to start voice conversation</span>

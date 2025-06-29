@@ -146,6 +146,47 @@ const getSystemPrompt = (justCause: string, isSimulation: boolean = false): stri
   Example transition: If the user gives a powerful 'Why' statement, you should set nextStage to 'how_exploration'. If you feel it's the right time to test their character, you can set nextStage to 'conflict_simulation'.`;
 };
 
+// Helper function to provide detailed error messages for AWS/Bedrock issues
+const getBedrockErrorMessage = (error: any): string => {
+  const errorMessage = error.message || error.toString();
+  
+  if (errorMessage.includes('You don\'t have access to the model')) {
+    return `AWS Bedrock Model Access Error: The Claude 3 Sonnet model is not available for your AWS account. Please:
+
+1. Log in to your AWS Management Console
+2. Navigate to Amazon Bedrock service
+3. Go to "Model access" in the left sidebar
+4. Request access to "Claude 3 Sonnet" model
+5. Wait for approval (this can take a few minutes to hours)
+6. Ensure your AWS region (${VITE_AWS_REGION}) supports this model
+
+If you continue having issues, try switching to a different AWS region like us-east-1 or us-west-2.`;
+  }
+  
+  if (errorMessage.includes('security token') || errorMessage.includes('credentials')) {
+    return `AWS Credentials Error: Your AWS credentials are invalid or expired. Please:
+
+1. Verify VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in your .env file
+2. Ensure the credentials belong to an IAM user with Bedrock permissions
+3. Check that the credentials haven't expired
+4. Verify the IAM user has the "AmazonBedrockFullAccess" policy attached
+
+Current region: ${VITE_AWS_REGION}`;
+  }
+  
+  if (errorMessage.includes('region')) {
+    return `AWS Region Error: The specified region (${VITE_AWS_REGION}) may not support Bedrock or the Claude model. Try changing VITE_AWS_REGION in your .env file to:
+- us-east-1
+- us-west-2
+- eu-west-3`;
+  }
+  
+  if (errorMessage.includes('throttling') || errorMessage.includes('rate')) {
+    return 'AWS Rate Limiting: Too many requests. Please wait a moment and try again.';
+  }
+  
+  return `AWS Bedrock Error: ${errorMessage}. Please check your AWS configuration and try again.`;
+};
 
 // --- CORE CONVERSATION AND SIMULATION FUNCTION ---
 
@@ -163,25 +204,36 @@ export async function generateAIResponse(
 
       // Ask the AI for a concluding remark before moving on
       const prompt = getSystemPrompt(justCause, true);
-      const command = new InvokeModelCommand({
-          modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
-          contentType: 'application/json',
-          accept: 'application/json',
-          body: JSON.stringify({
-            anthropic_version: 'bedrock-2023-05-31',
-            max_tokens: 200,
-            messages: [{ role: 'user', content: prompt }],
-          }),
-      });
-      const response = await bedrockClient.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-      const aiOutput = JSON.parse(responseBody.content[0].text);
+      
+      try {
+        const command = new InvokeModelCommand({
+            modelId: 'anthropic.claude-3-sonnet-20240229-v1:0',
+            contentType: 'application/json',
+            accept: 'application/json',
+            body: JSON.stringify({
+              anthropic_version: 'bedrock-2023-05-31',
+              max_tokens: 200,
+              messages: [{ role: 'user', content: prompt }],
+            }),
+        });
+        const response = await bedrockClient.send(command);
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+        const aiOutput = JSON.parse(responseBody.content[0].text);
 
-      return {
-          content: aiOutput.response,
-          stage: aiOutput.nextStage, // AI transitions to the next stage
+        return {
+            content: aiOutput.response,
+            stage: aiOutput.nextStage, // AI transitions to the next stage
+            expectsInput: 'text'
+        };
+      } catch (error) {
+        console.error('Bedrock simulation error:', error);
+        // Fallback for simulation conclusion
+        return {
+          content: "Thank you for that response. I can see how you approach challenging situations. Let's continue exploring your professional values and experiences.",
+          stage: 'trust_assessment',
           expectsInput: 'text'
-      };
+        };
+      }
   }
 
   // --- Standard Conversation Logic ---
@@ -246,17 +298,9 @@ export async function generateAIResponse(
   } catch (error) {
     console.error('Bedrock API error:', error);
     
-    // Provide more specific error handling for authentication issues
-    if (error instanceof Error && error.message.includes('security token')) {
-      throw new Error('AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.');
-    }
-    
-    // Provide a more graceful failure response for other errors
-    return {
-      content: "I seem to be having a technical issue. I apologize. Let's try to continue. Could you please tell me more about a time you felt truly fulfilled in your work?",
-      expectsInput: 'text',
-      stage: context.stage,
-    };
+    // Provide detailed error message for AWS/Bedrock issues
+    const detailedError = getBedrockErrorMessage(error);
+    throw new Error(detailedError);
   }
 }
 
@@ -333,10 +377,8 @@ export async function generatePersonalityAnalysis(
   } catch (error) {
     console.error('Analysis generation error:', error);
     
-    if (error instanceof Error && error.message.includes('security token')) {
-      throw new Error('AWS credentials are invalid. Please check your VITE_AWS_ACCESS_KEY_ID and VITE_AWS_SECRET_ACCESS_KEY in the .env file and ensure they are valid AWS credentials with Bedrock permissions.');
-    }
-    
-    throw new Error("The AI was unable to generate a final analysis profile.");
+    // Provide detailed error message for AWS/Bedrock issues
+    const detailedError = getBedrockErrorMessage(error);
+    throw new Error(detailedError);
   }
 }
