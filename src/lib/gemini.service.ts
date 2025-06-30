@@ -1,5 +1,5 @@
 // FILE: gemini.service.ts
-// ENHANCED VERSION - Incorporating Multi-Turn History & Tool Calling
+// ENHANCED & RE-FOCUSED VERSION
 
 import { SCENARIO_BLUEPRINTS, ScenarioBlueprint, ConflictStyle } from './simulation';
 
@@ -14,12 +14,10 @@ if (!VITE_GEMINI_API_KEY || VITE_GEMINI_API_KEY.includes('your_gemini_api_key'))
   throw new Error(error);
 }
 
-// NOTE: Please ensure 'gemini-2.5-pro' is a valid and available model endpoint.
-// Using a standard known model for this example.
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent';
 console.log(`✅ GEMINI: Service initialized for model at ${GEMINI_API_URL}`);
 
-// --- INTERFACES (Updated ConversationHistory) ---
+// --- INTERFACES (Updated with Job Performance Indicators) ---
 
 export interface AIResponse {
   content: string;
@@ -47,10 +45,9 @@ export interface ConversationContext {
     howValues?: string[];
     answers: Record<string, any>;
   };
-  // UPDATE: Aligned with Gemini's native multi-turn chat structure
   conversationHistory: Array<{
-    role: 'user' | 'model'; // Gemini uses 'model' for the assistant role
-    parts: any[]; // Can contain text or function calls
+    role: 'user' | 'model';
+    parts: any[];
   }>;
   simulation?: SimulationState;
 }
@@ -64,26 +61,34 @@ export interface CandidatePersonaProfile {
   eqSnapshot: { selfAwareness: string; selfManagement: string; socialAwareness: string; relationshipManagement: string; };
   keyQuotationsAndBehavioralFlags: { greenFlags: string[]; redFlags: string[]; };
   alignmentSummary: string;
+  // NEW: Added a dedicated section for job performance analysis.
+  jobPerformanceIndicators: {
+    potentialStrengths: string[];
+    potentialChallenges: string[];
+  };
 }
 
-// --- REFINED SYSTEM PROMPT & TOOL DEFINITIONS ---
+// --- REFINED SYSTEM PROMPT & TOOL DEFINITIONS (PERFORMANCE-FOCUSED) ---
 
-const getSystemPrompt = (justCause: string): string => {
-  return `You are Sensa, an AI personality analyst with a deep, calming voice specializing in the Simon Sinek Golden Circle framework...
-  
+const getSystemPrompt = (justCause: string, jobRole: string): string => {
+  return `You are an AI Talent Strategist. Your specialization is using the Simon Sinek Golden Circle framework to predict a candidate's future job performance and cultural contribution.
+
   THE ORGANIZATION'S JUST CAUSE: "${justCause}"
-  Your primary objective is to assess how the candidate's personal WHY aligns with this Just Cause.
+  THE TARGET ROLE: "${jobRole}"
 
-  SENSA'S COMMUNICATION STYLE:
-  - Speak with a deep, calming, professional tone.
-  - Use thoughtful pauses and measured language to create a safe, reflective environment.
-  - Ask profound questions that encourage introspection.
+  PRIMARY OBJECTIVE:
+  Your goal is to understand the candidate's core motivations (WHY) and their operational values (HOW) to predict how they will perform their job functions (WHAT). You must constantly seek to connect their personal drivers to tangible, on-the-job behaviors.
+
+  COMMUNICATION STYLE:
+  - Professional, insightful, and clear.
+  - Efficient and respectful of the candidate's time.
+  - Create a focused environment where the candidate feels comfortable sharing concrete examples.
 
   AI-DRIVEN FLOW:
-  Your most important task is to manage the conversation flow intelligently by deciding the next logical stage. You will do this by calling the appropriate tool.`;
+  Your most important task is to manage the conversation flow intelligently by deciding the next logical stage. You will do this by calling the appropriate tool. Always guide the conversation towards understanding how their personal values translate into work-related actions.`;
 };
 
-// NEW: Gemini Tool definitions for robust state management
+// UPDATED: The analysis tool now includes job performance indicators.
 const TOOLS = {
   conversationTools: [{
     functionDeclarations: [
@@ -93,7 +98,7 @@ const TOOLS = {
         parameters: {
           type: "OBJECT",
           properties: {
-            response: { type: "STRING", description: "Your natural, conversational reply as Sensa." },
+            response: { type: "STRING", description: "Your professional and insightful reply." },
             nextStage: { type: "STRING", description: "The next logical conversation stage (e.g., 'how_exploration')." }
           },
           required: ["response", "nextStage"]
@@ -101,7 +106,7 @@ const TOOLS = {
       },
       {
         name: "initiateConflictSimulation",
-        description: "Initiates a conflict simulation when you judge it's the right time to test character.",
+        description: "Initiates a conflict simulation to observe behavior under pressure.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -116,17 +121,29 @@ const TOOLS = {
     functionDeclarations: [
       {
         name: "submitAnalysis",
-        description: "Submits the complete candidate persona profile analysis.",
+        description: "Submits the complete candidate persona and performance profile.",
         parameters: {
           type: "OBJECT",
           properties: {
-            statedWhy: { type: "STRING" }, observedHow: { type: "ARRAY", items: { type: "STRING" } },
-            coherenceScore: { type: "STRING" }, trustIndex: { type: "STRING" }, dominantConflictStyle: { type: "STRING" },
+            statedWhy: { type: "STRING" },
+            observedHow: { type: "ARRAY", items: { type: "STRING" } },
+            coherenceScore: { type: "STRING" },
+            trustIndex: { type: "STRING" },
+            dominantConflictStyle: { type: "STRING" },
             eqSnapshot: { type: "OBJECT", properties: { selfAwareness: { type: "STRING" }, selfManagement: { type: "STRING" }, socialAwareness: { type: "STRING" }, relationshipManagement: { type: "STRING" } } },
             keyQuotationsAndBehavioralFlags: { type: "OBJECT", properties: { greenFlags: { type: "ARRAY", items: { type: "STRING" } }, redFlags: { type: "ARRAY", items: { type: "STRING" } } } },
-            alignmentSummary: { type: "STRING" }
+            alignmentSummary: { type: "STRING" },
+            // NEW: Added job performance indicators to the tool's parameters.
+            jobPerformanceIndicators: {
+              type: "OBJECT",
+              properties: {
+                potentialStrengths: { type: "ARRAY", items: { type: "STRING" }, description: "List of strengths directly relevant to job performance." },
+                potentialChallenges: { type: "ARRAY", items: { type: "STRING" }, description: "List of potential on-the-job challenges or areas for coaching." }
+              },
+              required: ["potentialStrengths", "potentialChallenges"]
+            }
           },
-          required: ["statedWhy", "observedHow", "coherenceScore", "trustIndex", "dominantConflictStyle", "eqSnapshot", "keyQuotationsAndBehavioralFlags", "alignmentSummary"]
+          required: ["statedWhy", "observedHow", "coherenceScore", "trustIndex", "dominantConflictStyle", "eqSnapshot", "keyQuotationsAndBehavioralFlags", "alignmentSummary", "jobPerformanceIndicators"]
         }
       }
     ]
@@ -183,24 +200,23 @@ async function makeGeminiRequest(
 export async function generateAIResponse(
   userMessage: string,
   context: ConversationContext,
-  justCause: string = "To empower individuals and organizations to discover and live their purpose"
+  justCause: string,
+  jobRole: string // Pass the specific job role for context
 ): Promise<AIResponse> {
-  console.log(`⚙️ GEMINI: Processing stage '${context.stage}'...`);
+  console.log(`⚙️ GEMINI: Processing stage '${context.stage}' for role '${jobRole}'...`);
 
-  // Simulation Logic remains straightforward
   if (context.stage === 'conflict_simulation' && context.simulation && !context.simulation.isComplete) {
     context.simulation.decisionHistory.push(userMessage as ConflictStyle);
     context.simulation.isComplete = true;
     return {
-      content: "Thank you for sharing your approach. Let's continue.",
+      content: "Thank you for working through that scenario. Let's continue.",
       stage: 'trust_assessment',
       expectsInput: 'text'
     };
   }
 
   try {
-    const systemInstruction = getSystemPrompt(justCause);
-    // Use multi-turn history directly
+    const systemInstruction = getSystemPrompt(justCause, jobRole);
     const apiResponsePart = await makeGeminiRequest(
       systemInstruction,
       context.conversationHistory,
@@ -208,17 +224,14 @@ export async function generateAIResponse(
       TOOLS.conversationTools
     );
 
-    // Expect the model to call a function for state management
     if (!apiResponsePart.functionCall) {
-      // Fallback if the model just returns text
       console.warn("⚠️ GEMINI: Model returned text instead of a function call. Using text as content.");
-      return { content: apiResponsePart.text, stage: context.stage, expectsInput: 'text' };
+      return { content: apiResponsePart.text || "I'm sorry, I need a moment to process that. Could you please rephrase?", stage: context.stage, expectsInput: 'text' };
     }
 
     const { name, args } = apiResponsePart.functionCall;
     console.log(`✅ GEMINI: AI called tool '${name}'`);
 
-    // Update history with what happened
     context.conversationHistory.push({ role: 'user', parts: [{ text: userMessage }] });
     context.conversationHistory.push({ role: 'model', parts: [apiResponsePart] });
 
@@ -250,7 +263,7 @@ export async function generateAIResponse(
   } catch (error) {
     console.error('❌ GEMINI CONVERSATION ERROR:', error);
     return {
-      content: "I seem to be having a technical issue, my apologies. Let's try to continue. Could you please tell me more about a time you felt truly fulfilled in your work?",
+      content: "I seem to be having a technical issue. Let's try to continue. Could you tell me more about a time you felt truly fulfilled in your work?",
       expectsInput: 'text',
       stage: context.stage,
     };
@@ -259,24 +272,28 @@ export async function generateAIResponse(
 
 export async function generatePersonalityAnalysis(
   context: ConversationContext,
-  justCause: string = "To empower individuals and organizations to discover and live their purpose"
+  justCause: string,
+  jobRole: string // Pass the job role for the final analysis
 ): Promise<CandidatePersonaProfile> {
-  console.log('📊 GEMINI: Generating final analysis...');
+  console.log('📊 GEMINI: Generating final performance analysis...');
 
-  const analysisPrompt = `Please analyze the entire conversation history and simulation results to produce the comprehensive Candidate Persona Profile. Pay close attention to the candidate's alignment with the organization's Just Cause. Submit your findings using the 'submitAnalysis' tool.`;
+  const analysisPrompt = `Please analyze the entire conversation history and simulation results to produce the comprehensive Candidate Persona Profile.
+  - Critically evaluate how the candidate's personal drivers will translate into on-the-job performance for the **${jobRole}** role.
+  - For the 'jobPerformanceIndicators', provide concrete, actionable insights for a hiring manager.
+  - Submit your complete findings using the 'submitAnalysis' tool.`;
 
   try {
-    const systemInstruction = getSystemPrompt(justCause);
+    const systemInstruction = getSystemPrompt(justCause, jobRole);
     const apiResponsePart = await makeGeminiRequest(
       systemInstruction,
       context.conversationHistory,
       analysisPrompt,
       TOOLS.analysisTool,
-      0.3 // Lower temperature for deterministic analysis
+      0.3
     );
 
     if (apiResponsePart.functionCall?.name === 'submitAnalysis') {
-      console.log('✅ GEMINI: Analysis profile generated and submitted by tool call.');
+      console.log('✅ GEMINI: Performance analysis profile generated successfully.');
       return apiResponsePart.functionCall.args as CandidatePersonaProfile;
     }
 
