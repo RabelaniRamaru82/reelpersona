@@ -160,9 +160,33 @@ async function makeGeminiRequest(
 ): Promise<any> {
   console.log(`🤖 GEMINI: Making API request...`);
 
+  // FIX: Sanitize the history to ensure it matches the Gemini API's expected format.
+  // This handles legacy formats that might still be in the context state, which causes the 400 error.
+  const sanitizedHistory = history.map((msg: any) => {
+    // If the message already has 'parts', it's in the new format.
+    // Just ensure the role is 'model' instead of 'assistant'.
+    if (msg.parts) {
+      return {
+        ...msg,
+        role: msg.role === 'assistant' ? 'model' : msg.role,
+      };
+    }
+    // If the message has 'content' (legacy format), convert it.
+    if (msg.content) {
+      return {
+        role: msg.role === 'assistant' ? 'model' : msg.role,
+        parts: [{ text: msg.content as string }],
+      };
+    }
+    // If the message is somehow malformed, filter it out to prevent API errors.
+    console.warn("⚠️ GEMINI: Filtering out malformed history message:", msg);
+    return null;
+  }).filter(Boolean) as ConversationContext['conversationHistory'];
+
+
   const requestBody = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [...history, { role: 'user', parts: [{ text: prompt }] }],
+    contents: [...sanitizedHistory, { role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { temperature, maxOutputTokens: 4096 },
     tools,
     safetySettings: [
