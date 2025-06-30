@@ -176,16 +176,16 @@ const ReelPersona: React.FC = () => {
 
     const wakeWordConfig: WakeWordConfig = {
       wakeWord: 'hey sensa',
-      threshold: 0.7,
+      threshold: 0.6, // Lowered threshold for better detection
       continuous: true,
       language: 'en-US'
     };
 
     const callbacks: WakeWordCallbacks = {
       onWakeWordDetected: () => {
-        console.log('Hey Sensa detected!');
+        console.log('🎉 COMPONENT: Hey Sensa detected!');
         setIsInConversation(true);
-        setWakeWordStatus('Listening... Say your message');
+        setWakeWordStatus('🎤 Listening... Say your message now');
         
         // Provide audio feedback
         if (elevenLabsInitialized && voiceSettings.enabled) {
@@ -194,47 +194,54 @@ const ReelPersona: React.FC = () => {
       },
       
       onListening: (listening) => {
+        console.log('🎤 COMPONENT: Listening state changed:', listening);
         setIsListening(listening);
         if (listening && !isInConversation) {
-          setWakeWordStatus('Listening for "Hey Sensa"...');
+          setWakeWordStatus('🔍 Listening for "Hey Sensa"...');
         }
       },
       
       onError: (error) => {
-        console.error('Wake word error:', error);
+        console.error('🎤 COMPONENT: Wake word error:', error);
         setVoiceError(error);
-        setWakeWordStatus('Voice recognition error');
+        setWakeWordStatus('❌ Voice recognition error');
       },
       
       onSpeechResult: (transcript, isFinal) => {
+        console.log('🎤 COMPONENT: Speech result:', { transcript, isFinal, isInConversation });
+        
         if (isInConversation && transcript.trim()) {
           if (isFinal) {
             // Process the speech input
-            if (transcript.trim()) {
-              setChatInput(transcript);
-              processUserInput(transcript.trim());
-              setIsInConversation(false);
-              setWakeWordStatus('');
-            }
+            console.log('✅ COMPONENT: Processing final speech:', transcript);
+            setChatInput(''); // Clear input first
+            processUserInput(transcript.trim());
+            setIsInConversation(false);
+            setWakeWordStatus('');
           } else {
             // Show interim results
+            console.log('⏳ COMPONENT: Interim speech:', transcript);
             pendingSpeechRef.current = transcript;
             setChatInput(transcript);
           }
         } else if (isFinal && isInConversation) {
           // Return to wake word mode
+          console.log('🔄 COMPONENT: Returning to wake word mode');
           setIsInConversation(false);
           setWakeWordStatus('');
+          setChatInput('');
         }
       }
     };
 
+    console.log('🎤 COMPONENT: Initializing wake word service...');
     const service = initializeWakeWordService(wakeWordConfig, callbacks);
     
     return () => {
+      console.log('🎤 COMPONENT: Cleaning up wake word service...');
       service?.destroy();
     };
-  }, [voiceSettings.wakeWordEnabled, elevenLabsInitialized, voiceSettings.enabled]);
+  }, [voiceSettings.wakeWordEnabled, elevenLabsInitialized, voiceSettings.enabled, isInConversation]);
 
   // Auto-scroll chat messages
   useEffect(() => {
@@ -253,10 +260,15 @@ const ReelPersona: React.FC = () => {
   // Start wake word detection when chat starts
   useEffect(() => {
     if (currentStep === 'chat' && voiceSettings.wakeWordEnabled) {
+      console.log('🎤 COMPONENT: Starting wake word detection for chat...');
       const service = getWakeWordService();
       if (service) {
-        service.startListening();
-        setWakeWordStatus('Say "Hey Sensa" to start talking');
+        const started = service.startListening();
+        if (started) {
+          setWakeWordStatus('🔍 Say "Hey Sensa" to start talking');
+        } else {
+          setWakeWordStatus('❌ Failed to start voice recognition');
+        }
       }
     }
   }, [currentStep, voiceSettings.wakeWordEnabled]);
@@ -323,14 +335,19 @@ const ReelPersona: React.FC = () => {
   };
 
   const toggleWakeWord = () => {
-    setVoiceSettings(prev => ({ ...prev, wakeWordEnabled: !prev.wakeWordEnabled }));
+    const newEnabled = !voiceSettings.wakeWordEnabled;
+    setVoiceSettings(prev => ({ ...prev, wakeWordEnabled: newEnabled }));
     
     const service = getWakeWordService();
     if (service) {
-      if (!voiceSettings.wakeWordEnabled) {
-        service.startListening();
-        setWakeWordStatus('Say "Hey Sensa" to start talking');
+      if (newEnabled) {
+        console.log('🎤 COMPONENT: Enabling wake word detection...');
+        const started = service.startListening();
+        if (started) {
+          setWakeWordStatus('🔍 Say "Hey Sensa" to start talking');
+        }
       } else {
+        console.log('🎤 COMPONENT: Disabling wake word detection...');
         service.stopListening();
         setWakeWordStatus('');
         setIsInConversation(false);
@@ -421,6 +438,8 @@ const ReelPersona: React.FC = () => {
   };
 
   const processUserInput = async (input: string, isChoice: boolean = false, choiceIndex?: number, conflictStyle?: ConflictStyle) => {
+    console.log('💬 COMPONENT: Processing user input:', { input, isChoice, choiceIndex, conflictStyle });
+    
     // Clear any pending speech
     pendingSpeechRef.current = '';
     setChatInput('');
@@ -982,7 +1001,7 @@ const ReelPersona: React.FC = () => {
               className={styles.chatInput}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder={isInConversation ? "Listening... speak your message" : 'Type here or say "Hey Sensa" to talk...'}
+              placeholder={isInConversation ? "🎤 Listening... speak your message" : 'Type here or say "Hey Sensa" to talk...'}
               disabled={isTyping || isAnalyzing || isInConversation}
             />
             <button
