@@ -58,11 +58,10 @@ class WakeWordService {
     };
 
     this.recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      
       // Handle specific errors gracefully
       if (event.error === 'no-speech') {
-        // Normal - just restart
+        // Normal - just restart, log as debug info instead of error
+        console.debug('Speech recognition: no speech detected (normal during continuous listening)');
         return;
       }
       
@@ -71,6 +70,8 @@ class WakeWordService {
         return;
       }
       
+      // Log other errors as actual errors
+      console.error('Speech recognition error:', event.error);
       this.callbacks.onError(`Speech recognition error: ${event.error}`);
     };
 
