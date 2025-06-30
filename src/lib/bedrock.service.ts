@@ -54,17 +54,10 @@ const bedrockClient = new BedrockRuntimeClient({
 
 console.log('✅ BEDROCK: Client initialized with region:', VITE_AWS_REGION);
 
-// --- EXPANDED MODEL SELECTION WITH FALLBACK ---
-// Try Claude models first, then fallback to other available models
+// --- UPDATED MODEL SELECTION WITH CORRECT MODEL IDS ---
+// Using correct and generally available model identifiers
 const AVAILABLE_MODELS = [
-  // Claude 4 Sonnet (Latest)
-  {
-    id: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-    name: 'Claude 4 Sonnet (Inference Profile)',
-    type: 'claude',
-    requestFormat: 'anthropic'
-  },
-  // Claude 3.5 Sonnet
+  // Claude 3.5 Sonnet (Most widely available)
   {
     id: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
     name: 'Claude 3.5 Sonnet',
@@ -87,34 +80,40 @@ const AVAILABLE_MODELS = [
   },
   // Amazon Titan Text models (More widely available)
   {
-    id: 'amazon.titan-text-premier-v1:0',
-    name: 'Amazon Titan Text Premier',
-    type: 'titan',
-    requestFormat: 'titan'
-  },
-  {
     id: 'amazon.titan-text-express-v1',
     name: 'Amazon Titan Text Express',
     type: 'titan',
     requestFormat: 'titan'
   },
-  // Meta Llama models (Often available)
   {
-    id: 'meta.llama3-2-90b-instruct-v1:0',
-    name: 'Meta Llama 3.2 90B',
+    id: 'amazon.titan-text-lite-v1',
+    name: 'Amazon Titan Text Lite',
+    type: 'titan',
+    requestFormat: 'titan'
+  },
+  // Meta Llama models (Updated to stable versions)
+  {
+    id: 'meta.llama3-70b-instruct-v1:0',
+    name: 'Meta Llama 3 70B',
     type: 'llama',
     requestFormat: 'llama'
   },
   {
-    id: 'meta.llama3-2-11b-instruct-v1:0',
-    name: 'Meta Llama 3.2 11B',
+    id: 'meta.llama3-8b-instruct-v1:0',
+    name: 'Meta Llama 3 8B',
     type: 'llama',
     requestFormat: 'llama'
   },
-  // Mistral AI models
+  // Mistral AI models (Updated to stable versions)
   {
-    id: 'mistral.mistral-large-2407-v1:0',
+    id: 'mistral.mistral-large-2402-v1:0',
     name: 'Mistral Large',
+    type: 'mistral',
+    requestFormat: 'mistral'
+  },
+  {
+    id: 'mistral.mistral-7b-instruct-v0:2',
+    name: 'Mistral 7B Instruct',
     type: 'mistral',
     requestFormat: 'mistral'
   }
@@ -369,7 +368,8 @@ function isAccessDeniedError(error: any): boolean {
     errorMessage.includes("don't have access") ||
     errorMessage.includes('Forbidden') ||
     errorMessage.includes('not authorized') ||
-    errorMessage.includes('insufficient permissions')
+    errorMessage.includes('insufficient permissions') ||
+    errorMessage.includes('The provided model identifier is invalid')
   );
 }
 
@@ -455,9 +455,9 @@ async function makeBedrockRequestWithFallback(prompt: string, maxTokens: number,
       console.error(`❌ BEDROCK: Error with model ${currentModel.name}:`, error);
       lastError = error instanceof Error ? error : new Error(String(error));
       
-      // Check if this is an access denied error
+      // Check if this is an access denied error or invalid model ID
       if (isAccessDeniedError(error)) {
-        console.log(`🔄 BEDROCK: Access denied for model ${currentModel.name}, trying next model...`);
+        console.log(`🔄 BEDROCK: Access denied or invalid model ID for ${currentModel.name}, trying next model...`);
         continue; // Try next model
       } else {
         // For non-access errors, don't try other models
