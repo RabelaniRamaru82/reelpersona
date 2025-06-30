@@ -19,7 +19,7 @@ if (!VITE_GEMINI_API_KEY) {
 }
 
 // Check for placeholder values that indicate invalid credentials
-if (VITE_GEMINI_API_KEY === 'your_gemini_api_key_here' || 
+if (VITE_GEMINI_API_KEY === 'your_gemini_api_key_here' ||
     VITE_GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
   const error = "Please replace the placeholder Gemini API key in your .env file with a valid API key.";
   console.error('❌ GEMINI ERROR:', error);
@@ -28,9 +28,26 @@ if (VITE_GEMINI_API_KEY === 'your_gemini_api_key_here' ||
 
 console.log('✅ GEMINI: Environment variables validated');
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+const GEMINI_API_URL = '[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent)';
 
 console.log('✅ GEMINI: Service initialized');
+
+// --- HELPER FUNCTION ---
+
+/**
+ * Extracts a JSON object string from a larger string, potentially wrapped in Markdown.
+ * @param text The string to search within.
+ * @returns The extracted JSON string, or the original text if no JSON object is found.
+ */
+function extractJsonFromString(text: string): string {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch && jsonMatch[0]) {
+        return jsonMatch[0];
+    }
+    // Fallback to the original text if no match is found, in case the API returns clean JSON.
+    return text;
+}
+
 
 // --- INTERFACES ---
 
@@ -72,7 +89,7 @@ export interface ConversationContext {
     whyStatement?: string;
     howValues?: string[];
     // A record of all answers for the final analysis
-    answers: Record<string, any>; 
+    answers: Record<string, any>;
   };
   conversationHistory: Array<{
     role: 'user' | 'assistant';
@@ -143,7 +160,7 @@ const getSystemPrompt = (justCause: string, isSimulation: boolean = false): stri
 
   AI-DRIVEN FLOW:
   Your most important task is to manage the conversation flow intelligently. Based on the user's response, decide the next logical stage.
-  
+ 
   Your entire response MUST be a single, valid JSON object with this structure:
   {
     "response": "Your natural, conversational reply as Sensa with deep, calming professionalism.",
@@ -224,7 +241,7 @@ async function makeGeminiRequest(prompt: string, temperature: number = 0.7): Pro
 
     const content = responseData.candidates[0].content.parts[0].text;
     console.log('✅ GEMINI: Content extracted, length:', content.length);
-    
+   
     return content;
 
   } catch (error) {
@@ -259,12 +276,14 @@ export async function generateAIResponse(
       // Ask the AI for a concluding remark before moving on
       const prompt = getSystemPrompt(justCause, true);
       console.log('🎭 GEMINI: Sending simulation conclusion request');
-      
+     
       try {
-        const content = await makeGeminiRequest(prompt, 0.3);
+        const rawContent = await makeGeminiRequest(prompt, 0.3);
         console.log('✅ GEMINI: Simulation response received');
-        
-        const aiOutput = JSON.parse(content);
+       
+        // FIX: Extract the JSON object from the potentially Markdown-wrapped response
+        const jsonString = extractJsonFromString(rawContent);
+        const aiOutput = JSON.parse(jsonString);
         console.log('🎭 GEMINI: Parsed simulation AI output:', aiOutput);
 
         return {
@@ -280,7 +299,7 @@ export async function generateAIResponse(
 
   // --- Standard Conversation Logic ---
   console.log('💬 GEMINI: Processing standard conversation');
-  
+ 
   try {
     context.conversationHistory.push({ role: 'user', content: userMessage });
     const conversationHistoryText = context.conversationHistory.slice(-10).map(msg => `${msg.role}: ${msg.content}`).join('\n');
@@ -292,15 +311,17 @@ export async function generateAIResponse(
     User Profile: ${JSON.stringify(context.userProfile)}
     RECENT CONVERSATION:
     ${conversationHistoryText}
-    
+   
     Respond as Sensa with your characteristic deep, calming professionalism in the required JSON format.`;
 
     console.log('💬 GEMINI: Prepared prompt (first 200 chars):', prompt.substring(0, 200) + '...');
 
-    const content = await makeGeminiRequest(prompt, 0.7);
+    const rawContent = await makeGeminiRequest(prompt, 0.7);
     console.log('✅ GEMINI: Response received');
 
-    const aiOutput = JSON.parse(content);
+    // FIX: Extract the JSON object from the potentially Markdown-wrapped response
+    const jsonString = extractJsonFromString(rawContent);
+    const aiOutput = JSON.parse(jsonString);
     console.log('💬 GEMINI: AI output parsed:', {
       responseLength: aiOutput.response?.length || 0,
       nextStage: aiOutput.nextStage,
@@ -312,7 +333,7 @@ export async function generateAIResponse(
         console.log('🎭 GEMINI: AI decided to start simulation');
         const scenario = SCENARIO_BLUEPRINTS[Math.floor(Math.random() * SCENARIO_BLUEPRINTS.length)];
         console.log('🎭 GEMINI: Selected scenario:', scenario.id);
-        
+       
         context.simulation = {
             scenario,
             decisionHistory: [],
@@ -331,7 +352,7 @@ export async function generateAIResponse(
     }
 
     context.conversationHistory.push({ role: 'assistant', content: aiOutput.response });
-    
+   
     console.log('✅ GEMINI: Standard conversation completed successfully');
     return {
       content: aiOutput.response,
@@ -346,14 +367,14 @@ export async function generateAIResponse(
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : 'No stack trace'
     });
-    
+   
     // Provide more specific error handling for API issues
     if (error instanceof Error && error.message.includes('API key')) {
       const enhancedError = 'Gemini API key is invalid. Please check your VITE_GEMINI_API_KEY in the .env file and ensure it is a valid Google AI API key.';
       console.error('❌ GEMINI AUTH ERROR:', enhancedError);
       throw new Error(enhancedError);
     }
-    
+   
     // Provide a more graceful failure response for other errors
     console.log('🔄 GEMINI: Providing fallback response');
     return {
@@ -421,26 +442,22 @@ export async function generatePersonalityAnalysis(
   console.log('📊 GEMINI: Analysis prompt prepared (length):', analysisPrompt.length);
 
   try {
-    const content = await makeGeminiRequest(analysisPrompt, 0.3);
+    const rawContent = await makeGeminiRequest(analysisPrompt, 0.3);
     console.log('✅ GEMINI: Analysis response received');
 
-    console.log('📊 GEMINI: Raw analysis content (first 200 chars):', content.substring(0, 200) + '...');
+    console.log('📊 GEMINI: Raw analysis content (first 200 chars):', rawContent.substring(0, 200) + '...');
+   
+    // FIX: Use the robust JSON extraction function
+    const jsonString = extractJsonFromString(rawContent);
+    const analysisResult = JSON.parse(jsonString);
     
-    // Extract the JSON object from the response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const analysisResult = JSON.parse(jsonMatch[0]);
-      console.log('✅ GEMINI: Analysis parsed successfully:', {
-        statedWhy: analysisResult.statedWhy?.substring(0, 50) + '...',
-        coherenceScore: analysisResult.coherenceScore,
-        trustIndex: analysisResult.trustIndex,
-        dominantConflictStyle: analysisResult.dominantConflictStyle
-      });
-      return analysisResult;
-    }
-    
-    console.error('❌ GEMINI: Failed to extract JSON from analysis response');
-    throw new Error("Failed to parse JSON analysis from model response.");
+    console.log('✅ GEMINI: Analysis parsed successfully:', {
+      statedWhy: analysisResult.statedWhy?.substring(0, 50) + '...',
+      coherenceScore: analysisResult.coherenceScore,
+      trustIndex: analysisResult.trustIndex,
+      dominantConflictStyle: analysisResult.dominantConflictStyle
+    });
+    return analysisResult;
 
   } catch (error) {
     console.error('❌ GEMINI ANALYSIS ERROR:', error);
@@ -449,13 +466,13 @@ export async function generatePersonalityAnalysis(
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : 'No stack trace'
     });
-    
+   
     if (error instanceof Error && error.message.includes('API key')) {
       const enhancedError = 'Gemini API key is invalid. Please check your VITE_GEMINI_API_KEY in the .env file and ensure it is a valid Google AI API key.';
       console.error('❌ GEMINI ANALYSIS AUTH ERROR:', enhancedError);
       throw new Error(enhancedError);
     }
-    
+   
     console.error('❌ GEMINI: Analysis generation failed completely');
     throw new Error("The AI was unable to generate a final analysis profile.");
   }
