@@ -426,7 +426,7 @@ const ReelPersona: React.FC = () => {
 
   const startConversation = () => {
     addMessage(
-      "Hello. I'm Sensa, your AI personality analyst powered by Google's Gemini AI. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. Through our conversation, I'll uncover your WHY, your HOW, and your WHAT, creating a comprehensive understanding of your professional persona. We may also explore how you handle workplace challenges through realistic scenarios. You can type your responses or simply say 'Hey Sensa' followed by your message to talk naturally with me. Take a moment to get comfortable, and when you're ready, shall we begin this journey of discovery?",
+      "Hello. I'm Sensa, your AI personality analyst. I specialize in helping professionals discover their deeper motivations using the proven Golden Circle framework. Through our conversation, I'll uncover your WHY, your HOW, and your WHAT, creating a comprehensive understanding of your professional persona. We may also explore how you handle workplace challenges through realistic scenarios. You can type your responses or simply say 'Hey Sensa' followed by your message to talk naturally with me. Take a moment to get comfortable, and when you're ready, shall we begin this journey of discovery?",
       'ai',
       ['Yes, I\'m ready to begin', 'Tell me more about the process first']
     );
@@ -818,8 +818,8 @@ const ReelPersona: React.FC = () => {
         <div className={styles.welcomeMessage}>
           <h2>Meet Sensa - Your AI Personality Analyst</h2>
           <p>
-            Experience the future of personality assessment with Sensa, powered by Google's Gemini AI and 
-            ElevenLabs' ultra-realistic voice technology. Simply say <strong>"Hey Sensa"</strong> followed by your message 
+            Experience the future of personality assessment with Sensa, featuring advanced AI technology and 
+            ElevenLabs' ultra-realistic voice capabilities. Simply say <strong>"Hey Sensa"</strong> followed by your message 
             to have natural voice conversations, just like talking to Siri or Alexa.
           </p>
           <p>
@@ -886,7 +886,7 @@ const ReelPersona: React.FC = () => {
           <div className={styles.chatHeaderContent}>
             <div className={styles.chatHeaderInfo}>
               <h2><Brain size={24} />Sensa - AI Personality Analyst</h2>
-              <p>Powered by Google Gemini AI • Say "Hey Sensa" to start talking naturally</p>
+              <p>Say "Hey Sensa" to start talking naturally</p>
               {wakeWordStatus && (
                 <div className={styles.wakeWordStatus}>
                   <MicIcon size={16} className={isListening ? styles.listening : ''} />
@@ -1053,7 +1053,7 @@ const ReelPersona: React.FC = () => {
             <CheckCircle className={styles.saveStatusIcon} size={20} />
             <div className={styles.saveStatusText}>
               <strong>Analysis Complete!</strong>
-              <br />Professional personality assessment by Sensa powered by Google Gemini AI.
+              <br />Professional personality assessment by Sensa with voice interaction.
             </div>
           </div>
 
@@ -1137,7 +1137,6 @@ const ReelPersona: React.FC = () => {
 
             <div className={styles.integrationNote}>
               <p><strong>Assessment Framework:</strong> This analysis was conducted by Sensa using Simon Sinek's Golden Circle methodology with voice interaction capabilities.</p>
-              <p><strong>AI Technology:</strong> Powered by Google's Gemini AI for advanced natural language understanding.</p>
               <p><strong>Just Cause Alignment:</strong> Evaluated against the organization's purpose: "{justCause}"</p>
             </div>
           </div>
