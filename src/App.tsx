@@ -18,15 +18,8 @@ function App() {
   } = useAuthStore();
   const [localInitializing, setLocalInitializing] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
-  const [hasInitialized, setHasInitialized] = useState(false);
 
   useEffect(() => {
-    // Prevent multiple initializations that cause flashing
-    if (hasInitialized) {
-      console.log('🔄 APP: Already initialized, skipping...');
-      return;
-    }
-
     const init = async () => {
       try {
         console.log('🚀 APP: Starting initialization...');
@@ -51,7 +44,6 @@ function App() {
         await initialize();
         
         console.log('✅ APP: Initialization complete');
-        setHasInitialized(true);
       } catch (error) {
         console.error('❌ APP: Initialization failed:', error);
         setInitError(error instanceof Error ? error.message : 'Initialization failed');
@@ -65,10 +57,10 @@ function App() {
     // Force dark mode on the document
     document.documentElement.setAttribute('data-theme', 'dark');
     document.body.classList.add('gradient-background');
-  }, [initialize, hasInitialized]); // Add hasInitialized to dependencies
+  }, [initialize]);
 
   // Show loading state while initializing
-  if (localInitializing || (storeInitializing && !hasInitialized)) {
+  if (localInitializing || storeInitializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
         <div className="text-center text-white">
@@ -97,22 +89,10 @@ function App() {
     );
   }
 
-  // Show loading state for auth operations
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
-        <div className="text-center text-white">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-          <p>Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <AppWrapper
       isAuthenticated={isAuthenticated}
-      isInitializing={false} // We handle initialization above
+      isInitializing={false}
       user={user}
       error={error ?? null}
       onLogin={login}
