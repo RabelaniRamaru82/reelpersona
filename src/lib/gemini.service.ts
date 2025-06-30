@@ -28,7 +28,8 @@ if (VITE_GEMINI_API_KEY === 'your_gemini_api_key_here' ||
 
 console.log('✅ GEMINI: Environment variables validated');
 
-const GEMINI_API_URL = '[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent)';
+// UPDATE: Changed the model to 'gemini-2.5-pro' as requested.
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent';
 
 console.log('✅ GEMINI: Service initialized');
 
