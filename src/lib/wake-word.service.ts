@@ -43,7 +43,6 @@ class WakeWordService {
     this.recognition.interimResults = true;
     this.recognition.lang = this.config.language;
     this.recognition.maxAlternatives = 3; // Get more alternatives for better matching
-    this.recognition.grammars = null; // Don't restrict grammar
 
     this.recognition.onstart = () => {
       console.log('🎤 SPEECH: Recognition started');
